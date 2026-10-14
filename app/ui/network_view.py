@@ -1,0 +1,1 @@
+"""Network status view placeholder."""

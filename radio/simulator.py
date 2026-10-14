@@ -1,0 +1,1 @@
+"""Simulated radio channel placeholder."""

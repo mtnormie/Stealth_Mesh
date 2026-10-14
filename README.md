@@ -155,26 +155,28 @@ Results should report the test conditions, sample sizes, variability, and limita
 
 ```text
 Stealth-Mesh/
-├── app/
-├── config/
-├── core/
-├── docs/
-├── experiments/
-├── firmware/
-├── ml/
-├── monitoring/
-├── radio/
-├── routing/
-├── security/
-├── simulation/
-├── tests/
-├── transport/
+├── app/              # User interface and application services
+├── config/           # Simulation, network, and logging settings
+├── core/             # Nodes, messages, packets, topology, and events
+├── docs/             # Architecture, protocol, threat, hardware, and experiment notes
+├── experiments/      # Reproducible scenario configurations
+├── firmware/         # Embedded firmware workspace
+├── ml/               # Link-quality data, model, and evaluation modules
+├── monitoring/       # Metrics, event logs, and diagnostics
+├── radio/            # Radio abstraction and channel simulator
+├── results/          # Generated experiment results
+├── routing/          # Graph routing and route management
+├── security/         # Encryption, authentication, keys, and integrity
+├── simulation/       # Simulation runner and failure/loss scenarios
+├── tests/            # Test module placeholders
+├── transport/        # Delivery, acknowledgements, retries, and deduplication
+├── LICENSE
 ├── README.md
 ├── requirements.txt
 └── pyproject.toml
 ```
 
-Refer to `docs/architecture.md` for the detailed architecture and module responsibilities.
+The modules are scaffolds: implementation and validation are still pending. See `docs/architecture.md` for responsibilities and dependency boundaries.
 
 ## Development Roadmap
 
@@ -203,3 +205,5 @@ This repository is an experimental research project, not a certified communicati
 Physical radio experiments must comply with applicable spectrum regulations and equipment requirements.
 
 ## License
+
+This project is licensed under the MIT License; see `LICENSE`.

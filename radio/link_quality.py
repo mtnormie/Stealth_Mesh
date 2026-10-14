@@ -1,0 +1,1 @@
+"""Link-quality observations placeholder."""

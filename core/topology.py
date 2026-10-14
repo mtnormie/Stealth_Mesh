@@ -1,0 +1,1 @@
+"""Network topology representation placeholder."""

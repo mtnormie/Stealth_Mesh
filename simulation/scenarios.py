@@ -1,0 +1,1 @@
+"""Reusable simulation scenarios placeholder."""
