@@ -12,13 +12,14 @@ The primary goal is to investigate whether combining ML-based link assessment wi
 
 ## Key Features
 
-- **Self-organizing Mesh networking** — models a network of interconnected nodes without requiring a permanently available central controller.
-- **ML-based link-quality estimation** — investigates whether machine learning can predict link quality from observed network metrics.
-- **Adaptive routing** — combines link-quality estimates with graph-based routing algorithms.
-- **Fault tolerance** — evaluates route recovery after individual nodes or links become unavailable.
-- **Reliable message delivery** — supports acknowledgements, bounded retransmissions, duplicate detection, and message queues.
-- **End-to-end security** — designed to use established cryptographic libraries for message confidentiality and integrity.
-- **Network monitoring** — collects delivery ratio, latency, retransmissions, route recovery time, and other experimental metrics.
+- **Mesh network models** — represents nodes and weighted links in a software topology.
+- **ML-based link-quality estimation** — planned; no model is implemented yet.
+- **Baseline routing** — implements deterministic weighted Dijkstra path selection.
+- **Fault tolerance** — node availability and packet loss can be modeled; route recovery is not implemented yet.
+- **Reliable message delivery** — includes an in-memory queue, bounded hop retries, duplicate detection, and local acknowledgement tracking; wire-level acknowledgements and persistence remain planned.
+- **End-to-end security** — planned; no working cryptographic implementation is present.
+- **Network monitoring** — the integrated runner records delivery counts, retry
+  attempts, modeled latency, and in-memory structured events.
 - **Simulation-first development** — enables testing network behavior before deployment on physical hardware.
 
 ## Project Objectives
@@ -176,21 +177,16 @@ Stealth-Mesh/
 └── pyproject.toml
 ```
 
-The modules are scaffolds: implementation and validation are still pending. See `docs/architecture.md` for responsibilities and dependency boundaries.
+Implementation is incremental. Core models and a seeded software radio simulator
+are implemented and covered by standard-library unit tests; routing, reliable
+delivery, security, ML, monitoring, and the user interface remain in progress or
+planned. See [the roadmap](docs/roadmap.md) for verified status and priorities,
+and `docs/architecture.md` for responsibilities and dependency boundaries.
 
 ## Development Roadmap
 
-- [ ] Define the message format and node model
-- [ ] Implement the network graph and baseline routing
-- [ ] Build a radio-channel simulator
-- [ ] Implement acknowledgements and message queues
-- [ ] Add node-failure and packet-loss scenarios
-- [ ] Collect experimental datasets
-- [ ] Train and evaluate the link-quality model
-- [ ] Compare ML-assisted routing with the baseline
-- [ ] Integrate established security mechanisms
-- [ ] Evaluate a supported hardware prototype
-- [ ] Document reproducible results and limitations
+See [docs/roadmap.md](docs/roadmap.md) for the prioritized checklist separated
+into implemented, partially implemented, and planned functionality.
 
 ## Research Context
 

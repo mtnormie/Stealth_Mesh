@@ -1,4 +1,0 @@
-name: node_failure
-routing: dijkstra
-seed: 42
-failed_nodes: []

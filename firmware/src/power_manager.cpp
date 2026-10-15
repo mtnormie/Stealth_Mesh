@@ -1,1 +1,1 @@
-// Power manager placeholder.
+

@@ -1,1 +1,0 @@
-"""Queued message storage placeholder."""
