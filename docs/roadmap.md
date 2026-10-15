@@ -20,6 +20,10 @@ does not count as an implemented feature.
 - [x] Aggregate delivery/attempt/latency metrics and ordered structured events.
 - [x] Integrated simulation runner combining Dijkstra routing, simulated radio,
   transport delivery, and per-message result records.
+- [x] AES-256-GCM authenticated encryption helper, random 256-bit group-key
+  generation, and in-memory encrypted group messaging prototype.
+- [x] Local web UI for creating groups, sending messages, QR-rendered
+  single-use invitation tokens, and joining by token.
 - [x] Unit tests for the first model and simulator stage using Python's standard
   library test runner.
 
@@ -78,17 +82,25 @@ does not count as an implemented feature.
 
 ### 6. Security
 
-- [ ] Select a maintained authenticated-encryption dependency and define key
-  lifecycle, sender authentication, and replay protection interfaces.
+- [x] Select a maintained authenticated-encryption dependency and implement
+  AES-256-GCM message protection for the local prototype.
+- [ ] Define persistent key lifecycle, sender authentication, replay policy,
+  and cross-device group membership/key provisioning.
 - [ ] Add security tests and document assumptions and limitations.
 
 ### 7. Application and hardware
 
-- [ ] Implement a usable interface against stable application services.
+- [x] Implement an initial local web interface for group messaging and QR invites.
+- [ ] Connect the application service to routing/radio for actual multi-device
+  delivery; add persistence and authenticated remote sessions.
 - [ ] Select supported radio hardware only after software interfaces and tests are
   stable; validate firmware and regulatory constraints separately.
 
 ## Audit baseline (2026-10-14)
+
+The audit notes below describe the repository at that date and are retained as
+historical context; security and UI now have the limited prototype documented
+above.
 
 - Source inspection before implementation: most Python modules were placeholder
   docstrings; `app/main.py` raises `NotImplementedError`; experiment entry point

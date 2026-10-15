@@ -17,7 +17,8 @@ The primary goal is to investigate whether combining ML-based link assessment wi
 - **Baseline routing** — implements deterministic weighted Dijkstra path selection.
 - **Fault tolerance** — node availability and packet loss can be modeled; route recovery is not implemented yet.
 - **Reliable message delivery** — includes an in-memory queue, bounded hop retries, duplicate detection, and local acknowledgement tracking; wire-level acknowledgements and persistence remain planned.
-- **End-to-end security** — planned; no working cryptographic implementation is present.
+- **AES-256-GCM message protection** — implemented for the local group-message prototype; group keys are held in process memory.
+- **Local group chat UI** — create a group, send encrypted text, and issue single-use QR invitations within one running app instance.
 - **Network monitoring** — the integrated runner records delivery counts, retry
   attempts, modeled latency, and in-memory structured events.
 - **Simulation-first development** — enables testing network behavior before deployment on physical hardware.
@@ -177,11 +178,24 @@ Stealth-Mesh/
 └── pyproject.toml
 ```
 
-Implementation is incremental. Core models and a seeded software radio simulator
-are implemented and covered by standard-library unit tests; routing, reliable
-delivery, security, ML, monitoring, and the user interface remain in progress or
-planned. See [the roadmap](docs/roadmap.md) for verified status and priorities,
-and `docs/architecture.md` for responsibilities and dependency boundaries.
+Implementation is incremental. Core models, simulation, routing and transport
+are present. AES-256-GCM and a minimal local web UI now provide an initial group
+messaging prototype. The UI is bound to localhost, group state is memory-only,
+and QR invitations are single-use only inside the running process. This is not
+yet a multi-device mesh chat or a complete identity/key-management system. See
+[the roadmap](docs/roadmap.md) and [security notes](docs/threat_model.md).
+
+## Run the local messaging prototype
+
+```sh
+python -m pip install -r requirements.txt
+python -m app.main
+```
+
+Open `http://127.0.0.1:8765`. The interface defaults to Ukrainian and has an English language toggle. Create a group and choose **Створити QR-запрошення**. Open the generated link or enter its one-time token in another
+browser tab on the same running instance. Messages are encrypted with AES-256-GCM
+before being stored in the process memory. The demo does not exchange radio
+packets or synchronize between separate application processes.
 
 ## Development Roadmap
 
