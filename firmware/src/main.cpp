@@ -1,1 +1,0 @@
-// Firmware entry point placeholder.

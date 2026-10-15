@@ -1,1 +1,0 @@
-"""Bounded retry policy placeholder."""

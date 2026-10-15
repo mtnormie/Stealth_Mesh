@@ -8,7 +8,10 @@ version = "0.1.0"
 description = "Simulation-first research framework for resilient wireless mesh networking"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "cryptography>=42.0,<47.0",
+    "qrcode[pil]>=7.4,<9.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

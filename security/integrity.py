@@ -1,1 +1,0 @@
-"""Message integrity validation placeholder."""

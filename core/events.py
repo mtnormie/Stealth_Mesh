@@ -1,1 +1,0 @@
-"""Domain event definitions placeholder."""

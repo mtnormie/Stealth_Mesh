@@ -12,13 +12,15 @@ The primary goal is to investigate whether combining ML-based link assessment wi
 
 ## Key Features
 
-- **Self-organizing Mesh networking** — models a network of interconnected nodes without requiring a permanently available central controller.
-- **ML-based link-quality estimation** — investigates whether machine learning can predict link quality from observed network metrics.
-- **Adaptive routing** — combines link-quality estimates with graph-based routing algorithms.
-- **Fault tolerance** — evaluates route recovery after individual nodes or links become unavailable.
-- **Reliable message delivery** — supports acknowledgements, bounded retransmissions, duplicate detection, and message queues.
-- **End-to-end security** — designed to use established cryptographic libraries for message confidentiality and integrity.
-- **Network monitoring** — collects delivery ratio, latency, retransmissions, route recovery time, and other experimental metrics.
+- **Mesh network models** — represents nodes and weighted links in a software topology.
+- **ML-based link-quality estimation** — planned; no model is implemented yet.
+- **Baseline routing** — implements deterministic weighted Dijkstra path selection.
+- **Fault tolerance** — node availability and packet loss can be modeled; route recovery is not implemented yet.
+- **Reliable message delivery** — includes an in-memory queue, bounded hop retries, duplicate detection, and local acknowledgement tracking; wire-level acknowledgements and persistence remain planned.
+- **AES-256-GCM message protection** — implemented for the local group-message prototype; group keys are held in process memory.
+- **Local group chat UI** — create a group, send encrypted text, and issue single-use QR invitations within one running app instance.
+- **Network monitoring** — the integrated runner records delivery counts, retry
+  attempts, modeled latency, and in-memory structured events.
 - **Simulation-first development** — enables testing network behavior before deployment on physical hardware.
 
 ## Project Objectives
@@ -176,21 +178,29 @@ Stealth-Mesh/
 └── pyproject.toml
 ```
 
-The modules are scaffolds: implementation and validation are still pending. See `docs/architecture.md` for responsibilities and dependency boundaries.
+Implementation is incremental. Core models, simulation, routing and transport
+are present. AES-256-GCM and a minimal local web UI now provide an initial group
+messaging prototype. The UI is bound to localhost, group state is memory-only,
+and QR invitations are single-use only inside the running process. This is not
+yet a multi-device mesh chat or a complete identity/key-management system. See
+[the roadmap](docs/roadmap.md) and [security notes](docs/threat_model.md).
+
+## Run the local messaging prototype
+
+```sh
+python -m pip install -r requirements.txt
+python -m app.main
+```
+
+Open `http://127.0.0.1:8765`. The interface defaults to Ukrainian and has an English language toggle. Create a group and choose **Створити QR-запрошення**. Open the generated link or enter its one-time token in another
+browser tab on the same running instance. Messages are encrypted with AES-256-GCM
+before being stored in the process memory. The demo does not exchange radio
+packets or synchronize between separate application processes.
 
 ## Development Roadmap
 
-- [ ] Define the message format and node model
-- [ ] Implement the network graph and baseline routing
-- [ ] Build a radio-channel simulator
-- [ ] Implement acknowledgements and message queues
-- [ ] Add node-failure and packet-loss scenarios
-- [ ] Collect experimental datasets
-- [ ] Train and evaluate the link-quality model
-- [ ] Compare ML-assisted routing with the baseline
-- [ ] Integrate established security mechanisms
-- [ ] Evaluate a supported hardware prototype
-- [ ] Document reproducible results and limitations
+See [docs/roadmap.md](docs/roadmap.md) for the prioritized checklist separated
+into implemented, partially implemented, and planned functionality.
 
 ## Research Context
 

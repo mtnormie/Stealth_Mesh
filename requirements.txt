@@ -1,2 +1,2 @@
-# Runtime dependencies are intentionally empty for the initial scaffold.
-# Add pinned dependencies as implementations are introduced.
+cryptography>=42.0,<47.0
+qrcode[pil]>=7.4,<9.0

@@ -1,4 +1,0 @@
-name: packet_loss
-routing: dijkstra
-seed: 42
-packet_loss_probability: 0.1
