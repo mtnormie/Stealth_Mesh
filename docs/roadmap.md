@@ -29,8 +29,8 @@ does not count as an implemented feature.
 
 ## Partially implemented
 
-- [ ] Automated test layout now covers core models/simulation, routing, and
-  transport; failure, ML, and security test modules remain empty.
+- [ ] Automated test layout now covers core models/packets/simulation, routing,
+  transport, simulation runner, and security; ML test module remains empty.
 - [ ] Delivery is still a synchronous coordinator over an injected hop callback;
   ACK packets/timeouts, persistence, queue scheduling, and recovery after process
   restart are not implemented.
@@ -86,7 +86,7 @@ does not count as an implemented feature.
   AES-256-GCM message protection for the local prototype.
 - [ ] Define persistent key lifecycle, sender authentication, replay policy,
   and cross-device group membership/key provisioning.
-- [ ] Add security tests and document assumptions and limitations.
+- [x] Add security tests and document assumptions and limitations.
 
 ### 7. Application and hardware
 
@@ -108,11 +108,11 @@ above.
   plus simulation execution are now implemented. ML, security, UI, named scenarios,
   and experiment comparison remain unimplemented.
 - At audit start, existing `tests/test_*.py` files contained only explanatory
-  docstrings. Core/simulator, routing, delivery, and simulation-runner tests have
-  since been added.
+  docstrings. Core/simulator, packets, routing, delivery, simulation-runner, and
+  security tests have since been added.
 - `python -m pytest -q` could not run because pytest is not installed in the
   environment (`No module named pytest`). No tests are reported as passing.
-- Current verification: `python -m compileall -q core radio routing transport
-  monitoring simulation tests`, `python -m unittest discover -s tests -v` (18 tests
-  passed), and `git diff --check`.
+- Current verification: `python3 -m compileall -q app core radio routing transport
+  monitoring simulation security tests`, `python3 -m unittest discover -s tests -v`
+  (29 tests passed), and `git diff --check`.
 - Firmware files are placeholders and `platformio.ini` has no default target.
