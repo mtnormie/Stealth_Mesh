@@ -74,6 +74,14 @@ class DeliveryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             DeliveryManager().deliver(packet(), ["x", "c"], lambda _a, _b: True)
 
+    def test_hop_limit_exhaustion_stops_delivery(self) -> None:
+        manager = DeliveryManager(RetryPolicy(max_retries=1))
+        short_lived = Packet("m-hop", "a", "c", b"hello", hop_limit=1)
+        result = manager.deliver(short_lived, ["a", "b", "c"], lambda _a, _b: True)
+        self.assertEqual(result.status, DeliveryStatus.FAILED)
+        self.assertEqual(result.attempts, 1)
+
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,6 +3,7 @@
 import secrets
 
 GROUP_KEY_SIZE = 32
+INVITATION_TOKEN_BYTES = 32
 
 
 def generate_group_key() -> bytes:
@@ -12,4 +13,4 @@ def generate_group_key() -> bytes:
 
 def generate_invitation_token() -> str:
     """Return a high-entropy, URL-safe, single-use invitation token."""
-    return secrets.token_urlsafe(32)
+    return secrets.token_urlsafe(INVITATION_TOKEN_BYTES)

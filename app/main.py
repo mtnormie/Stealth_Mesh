@@ -32,15 +32,15 @@ button{background:#147d68;border:0;cursor:pointer}form{display:flex;gap:8px;marg
 let language=localStorage.getItem('stealth-mesh-language')||'uk';
 function applyLanguage(){document.documentElement.lang=language;document.querySelectorAll('[data-en]').forEach(e=>{if(language==='en')e.textContent=e.dataset.en;else e.textContent=e.dataset.uk||e.dataset.original||e.textContent});document.querySelectorAll('[data-placeholder-en]').forEach(e=>{if(!e.dataset.placeholderUk)e.dataset.placeholderUk=e.placeholder;e.placeholder=language==='en'?e.dataset.placeholderEn:e.dataset.placeholderUk});document.querySelector('#language').textContent=language==='uk'?'English':'Українська';document.querySelector('#invitation').replaceChildren()}
 document.querySelectorAll('[data-en]').forEach(e=>e.dataset.uk=e.textContent);document.querySelector('#language').onclick=()=>{language=language==='uk'?'en':'uk';localStorage.setItem('stealth-mesh-language',language);applyLanguage()};
-const api=async(path,data)=>{const r=await fetch(path,data?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}:{});const j=await r.json();if(!r.ok)throw Error(j.error||'Ошибка запроса');return j};
+const api=async(path,data)=>{const r=await fetch(path,data?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}:{});const j=await r.json();if(!r.ok)throw Error(j.error||'Помилка запиту');return j};
 const groups=document.querySelector('#groups'),messages=document.querySelector('#messages');let active='';
 function showError(e){alert(language==='uk'?({'group not found':'Групу не знайдено.','invitation is invalid or has already been used':'Запрошення недійсне або вже використане.','group name must contain 1 to 80 characters':'Назва групи має містити від 1 до 80 символів.','sender must contain 1 to 80 characters':'Ім’я має містити від 1 до 80 символів.','message must contain 1 to 4000 characters':'Повідомлення має містити від 1 до 4000 символів.'}[e.message]||'Сталася помилка.'):({'group not found':'Group not found.','invitation is invalid or has already been used':'Invitation is invalid or has already been used.','group name must contain 1 to 80 characters':'Group name must contain 1 to 80 characters.','sender must contain 1 to 80 characters':'Name must contain 1 to 80 characters.','message must contain 1 to 4000 characters':'Message must contain 1 to 4000 characters.'}[e.message]||'Request failed.'))}
 async function refreshGroups(selectId){const list=await api('/api/groups');groups.replaceChildren(new Option(language==='uk'?'Виберіть групу':'Choose a group',''));for(const g of list)groups.add(new Option(g.name,g.group_id));if(selectId)groups.value=selectId;active=groups.value;await refreshMessages()}
-async function refreshMessages(){active=groups.value;messages.innerHTML='';if(!active)return;for(const m of await api('/api/messages?group_id='+encodeURIComponent(active))){const row=document.createElement('div');row.className='msg';row.textContent=`${m.created_at} · ${m.sender}: ${m.body}`;messages.append(row)}messages.scrollTop=messages.scrollHeight}
+async function refreshMessages(){active=groups.value;messages.replaceChildren();if(!active)return;for(const m of await api('/api/messages?group_id='+encodeURIComponent(active))){const row=document.createElement('div');row.className='msg';row.textContent=`${m.created_at} · ${m.sender}: ${m.body}`;messages.append(row)}messages.scrollTop=messages.scrollHeight}
 document.querySelector('#create').onsubmit=async e=>{e.preventDefault();try{const g=await api('/api/groups',{name:e.target.name.value});e.target.reset();await refreshGroups(g.group_id)}catch(x){showError(x)}};
 document.querySelector('#join').onsubmit=async e=>{e.preventDefault();try{const g=await api('/api/join',{token:e.target.token.value.trim()});e.target.reset();await refreshGroups(g.group_id)}catch(x){showError(x)}};
 groups.onchange=refreshMessages;
-document.querySelector('#invite').onclick=async()=>{try{if(!groups.value)throw Error(language==='uk'?'Спочатку виберіть групу.':'Choose a group first.');const v=await api('/api/invitations',{group_id:groups.value});document.querySelector('#invitation').innerHTML=`<p>${language==='uk'?'Одноразовий код:':'One-time code:'} <code>${v.token}</code></p><img id="qr" alt="${language==='uk'?'QR-запрошення':'QR invitation'}" src="/qr?data=${encodeURIComponent(v.url)}"><p class="muted">${language==='uk'?'Відскануйте QR-код, щоб відкрити запрошення в цьому екземплярі застосунку.':'Scan the QR code to open the invitation in this app instance.'}</p>`}catch(x){showError(x)}};
+document.querySelector('#invite').onclick=async()=>{try{if(!groups.value)throw Error(language==='uk'?'Спочатку виберіть групу.':'Choose a group first.');const v=await api('/api/invitations',{group_id:groups.value});const box=document.querySelector('#invitation');const p1=document.createElement('p');p1.textContent=language==='uk'?'Одноразовий код: ':'One-time code: ';const code=document.createElement('code');code.textContent=v.token;p1.append(code);const img=document.createElement('img');img.id='qr';img.alt=language==='uk'?'QR-запрошення':'QR invitation';img.src='/qr?data='+encodeURIComponent(v.url);const p2=document.createElement('p');p2.className='muted';p2.textContent=language==='uk'?'Відскануйте QR-код, щоб відкрити запрошення в цьому екземплярі застосунку.':'Scan the QR code to open the invitation in this app instance.';box.replaceChildren(p1,img,p2)}catch(x){showError(x)}};
 document.querySelector('#send').onsubmit=async e=>{e.preventDefault();try{if(!groups.value)throw Error(language==='uk'?'Виберіть групу перед надсиланням.':'Choose a group before sending.');await api('/api/messages',{group_id:groups.value,sender:document.querySelector('#sender').value,body:e.target.body.value});e.target.reset();await refreshMessages()}catch(x){showError(x)}};
 applyLanguage();
 const params=new URLSearchParams(location.search);if(params.has('join')){document.querySelector('#join [name=token]').value=params.get('join');history.replaceState({},'',location.pathname)}
@@ -71,7 +71,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, buffer.getvalue(), "image/png")
             else:
                 self._json(404, {"error": "not found"})
-        except (KeyError, ValueError) as error:
+        except (KeyError, ValueError, TypeError) as error:
             self._json(400, {"error": str(error)})
 
     def do_POST(self) -> None:  # noqa: N802
@@ -93,7 +93,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": str(error)})
 
     def _read_json(self) -> dict[str, str]:
-        length = int(self.headers.get("Content-Length", "0"))
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError as error:
+            raise ValueError("invalid Content-Length") from error
         if length <= 0 or length > 8192:
             raise ValueError("invalid request size")
         value = json.loads(self.rfile.read(length))
@@ -109,6 +112,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(body)
 
