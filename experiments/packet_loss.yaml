@@ -1,0 +1,7 @@
+# Random packet-loss scenario configuration
+scenario: random_packet_loss
+seed: 42
+parameters:
+  loss_probability: 0.25
+  message_count: 20
+  max_retries: 2

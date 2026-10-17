@@ -4,7 +4,11 @@ import unittest
 
 from core.network import Network
 from core.node import Node
+from radio.link_quality import LinkObservation, LinkQualityTracker
 from routing.dijkstra import path_cost, shortest_path
+from routing.failure_detector import FailureDetector
+from routing.route_manager import RouteManager
+from routing.route_metrics import compute_link_cost
 
 
 class DijkstraTests(unittest.TestCase):
@@ -44,6 +48,49 @@ class DijkstraTests(unittest.TestCase):
             path_cost(self.network.topology, [])
         with self.assertRaises(ValueError):
             path_cost(self.network.topology, ["a", "c"])
+
+    def test_route_manager_reroutes_around_unavailable_nodes_and_failed_links(self) -> None:
+        self.network.add_link("a", "b", 1.0)
+        self.network.add_link("b", "d", 1.0)
+        self.network.add_link("a", "c", 2.0)
+        self.network.add_link("c", "d", 2.0)
+
+        detector = FailureDetector(failure_threshold=2)
+        manager = RouteManager(self.network, failure_detector=detector)
+        self.assertEqual(manager.find_route("a", "d"), ["a", "b", "d"])
+
+        # Two consecutive failures on link (a, b) trigger failover to a -> c -> d
+        detector.record_hop_outcome("a", "b", delivered=False)
+        self.assertFalse(detector.is_link_failed("a", "b"))
+        detector.record_hop_outcome("a", "b", delivered=False)
+        self.assertTrue(detector.is_link_failed("a", "b"))
+        self.assertEqual(manager.find_route("a", "d"), ["a", "c", "d"])
+
+        # Recovery restores primary route
+        detector.record_hop_outcome("a", "b", delivered=True)
+        self.assertEqual(manager.find_route("a", "d"), ["a", "b", "d"])
+
+        # Unavailable node b also forces route via c
+        self.network.nodes["b"].available = False
+        self.assertEqual(manager.find_route("a", "d"), ["a", "c", "d"])
+
+    def test_route_metrics_and_link_quality_fallback(self) -> None:
+        self.assertAlmostEqual(compute_link_cost(1.0, 1.0, penalty_weight=2.0), 1.0)
+        self.assertAlmostEqual(compute_link_cost(1.0, 0.5, penalty_weight=2.0), 3.0)
+        # Fallback when prediction is None or invalid
+        self.assertAlmostEqual(compute_link_cost(1.5, None), 1.5)
+        self.assertAlmostEqual(compute_link_cost(1.5, -0.2), 1.5)
+        self.assertAlmostEqual(compute_link_cost(1.5, 1.8), 1.5)
+
+        tracker = LinkQualityTracker(window_size=4)
+        tracker.record(LinkObservation("a", "b", True, 0.05, attempts=1, rssi_dbm=-75.0, snr_db=8.0))
+        tracker.record(LinkObservation("b", "a", False, 0.15, attempts=2, rssi_dbm=-95.0, snr_db=-2.0))
+        summary = tracker.summary("a", "b")
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertEqual(summary.sample_count, 2)
+        self.assertAlmostEqual(summary.delivery_ratio, 0.5)
+        self.assertAlmostEqual(summary.mean_rssi_dbm, -85.0)
 
 
 if __name__ == "__main__":

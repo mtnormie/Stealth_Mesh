@@ -9,6 +9,7 @@ from core.packet import Packet
 from monitoring.event_logger import EventLogger
 from radio.simulator import RadioSimulator
 from routing.dijkstra import shortest_path
+from routing.route_manager import RouteManager
 from simulation.results import MessageRun, SimulationResult
 from transport.delivery_manager import DeliveryManager, DeliveryResult, DeliveryStatus
 
@@ -22,13 +23,17 @@ class SimulationRunner:
         radio: RadioSimulator,
         delivery: DeliveryManager | None = None,
         event_logger: EventLogger | None = None,
+        route_manager: RouteManager | None = None,
     ) -> None:
         if radio.network is not network:
             raise ValueError("radio simulator must use the supplied network")
+        if route_manager is not None and route_manager.network is not network:
+            raise ValueError("route_manager must use the supplied network")
         self.network = network
         self.radio = radio
         self.delivery = delivery or DeliveryManager()
         self.event_logger = event_logger or EventLogger()
+        self.route_manager = route_manager
 
     def run(self, packets: Iterable[Packet]) -> SimulationResult:
         """Route and deliver packets, returning per-message outcomes and metrics."""
@@ -36,7 +41,10 @@ class SimulationRunner:
         for packet in packets:
             if not isinstance(packet, Packet):
                 raise TypeError("packets must contain Packet instances")
-            route = shortest_path(self.network.topology, packet.source, packet.destination)
+            if self.route_manager is not None:
+                route = self.route_manager.find_route(packet.source, packet.destination)
+            else:
+                route = shortest_path(self.network.topology, packet.source, packet.destination)
             modeled_latency = 0.0
             if route is None:
                 outcome = DeliveryResult(DeliveryStatus.FAILED, 0)
@@ -45,6 +53,12 @@ class SimulationRunner:
                     nonlocal modeled_latency
                     transmission = self.radio.transmit(source, destination)
                     modeled_latency += transmission.latency_seconds
+                    if self.route_manager is not None:
+                        self.route_manager.failure_detector.record_hop_outcome(
+                            source,
+                            destination,
+                            delivered=transmission.delivered,
+                        )
                     return transmission.delivered
 
                 outcome = self.delivery.deliver(packet, route, transmit)

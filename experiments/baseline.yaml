@@ -1,0 +1,7 @@
+# Baseline scenario configuration
+scenario: normal_operation
+seed: 42
+parameters:
+  loss_probability: 0.0
+  message_count: 20
+  max_retries: 2

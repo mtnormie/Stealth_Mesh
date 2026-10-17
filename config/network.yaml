@@ -1,0 +1,13 @@
+# Reference network and radio parameters for Stealth Mesh
+network:
+  default_hop_limit: 8
+  max_retries_per_hop: 2
+  failure_threshold: 2
+
+radio:
+  band: EU868
+  frequency_mhz: 868.1
+  spreading_factor: 7
+  bandwidth_khz: 125.0
+  coding_rate: 5
+  tx_power_dbm: 14
