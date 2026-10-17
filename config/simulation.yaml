@@ -1,0 +1,7 @@
+# Default reproducible simulation settings
+simulation:
+  seed: 42
+  message_count: 20
+  latency_range_seconds: [0.05, 0.15]
+  packet_loss_probability: 0.0
+  max_retries: 2

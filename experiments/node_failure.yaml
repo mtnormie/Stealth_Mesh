@@ -1,0 +1,8 @@
+# Relay node failure and route-recovery scenario configuration
+scenario: relay_node_failure
+seed: 42
+parameters:
+  failed_node_id: b
+  pre_failure_messages: 5
+  post_failure_messages: 5
+  max_retries: 2

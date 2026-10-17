@@ -12,15 +12,14 @@ The primary goal is to investigate whether combining ML-based link assessment wi
 
 ## Key Features
 
-- **Mesh network models** — represents nodes and weighted links in a software topology.
-- **ML-based link-quality estimation** — planned; no model is implemented yet.
-- **Baseline routing** — implements deterministic weighted Dijkstra path selection.
-- **Fault tolerance** — node availability and packet loss can be modeled; route recovery is not implemented yet.
+- **Mesh network models** — represents nodes, weighted links, and domain events in a validated software topology.
+- **ML-based link-quality estimation** — extracts 7 rolling link features, trains a standardized L2 logistic regression model on group-disjoint splits, compares against a non-ML baseline, and automatically falls back when the model is unavailable or untrained.
+- **Baseline & failure-aware routing** — implements deterministic weighted Dijkstra path selection plus `RouteManager` and `FailureDetector` for automatic route recalculation around unavailable nodes and failed links.
+- **Fault tolerance & reproducible scenarios** — includes seeded normal-operation, random packet-loss, and relay node-failure scenarios with JSON result export.
 - **Reliable message delivery** — includes an in-memory queue, bounded hop retries, duplicate detection, and local acknowledgement tracking; wire-level acknowledgements and persistence remain planned.
 - **AES-256-GCM message protection** — implemented for the local group-message prototype; group keys are held in process memory.
 - **Local group chat UI** — create a group, send encrypted text, and issue single-use QR invitations within one running app instance.
-- **Network monitoring** — the integrated runner records delivery counts, retry
-  attempts, modeled latency, and in-memory structured events.
+- **Network monitoring** — records delivery counts, retry attempts, modeled latency, network health diagnostics, and in-memory structured events.
 - **Simulation-first development** — enables testing network behavior before deployment on physical hardware.
 
 ## Project Objectives

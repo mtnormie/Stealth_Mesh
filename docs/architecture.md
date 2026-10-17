@@ -6,16 +6,12 @@ Dependencies should point inward toward domain abstractions. ML predictions are 
 
 ## Current prototype status
 
-Core message, packet, node, topology, and network models are implemented. The
-software radio simulator models direct-hop loss, node availability, and latency
-using a configurable random seed; latency is a returned simulated measurement and
-does not delay execution or access hardware. Routing currently provides weighted
-Dijkstra path selection. Transport currently provides an in-memory queue and a
-synchronous delivery coordinator with bounded hop retries and local acknowledgement
-tracking. It does not yet implement on-wire acknowledgement packets, timeout or
-durable-queue behavior. See [the roadmap](roadmap.md) for the verified checklist.
+Core message, packet, node, topology, network, and domain-event models (`core/`) are implemented. The software radio layer (`radio/`) defines the `RadioInterface` protocol, `LoRaModulationConfig` validation, rolling `LinkQualityTracker` observations, and `RadioSimulator` for direct-hop loss, node availability, and latency using a configurable random seed (latency is a simulated measurement and does not delay execution or access physical hardware).
 
-The simulation runner combines Dijkstra routing, the software radio, and
-transport; it collects per-message outcomes, delivery ratio, attempts, modeled
-latency, and ordered in-memory events. It has no configuration-file loader or
-result-file exporter yet.
+Routing (`routing/`) provides deterministic weighted Dijkstra path selection (`dijkstra.py`), consecutive-hop failure detection (`failure_detector.py`), link-cost adjustment with safe fallback (`route_metrics.py`), effective active topology filtering (`graph.py`), and adaptive failover (`route_manager.py`).
+
+Machine learning (`ml/`) provides 7-feature link-quality extraction (`features.py`), group-isolated leakage-free dataset splitting (`dataset.py`), pure-Python standardized L2-regularized logistic regression training (`train.py`), `MLLinkQualityPredictor` with automatic fallback to `BaselineLinkEstimator` (`predict.py`), and held-out Brier/log-loss/accuracy evaluation (`evaluate.py`).
+
+Transport (`transport/`) provides an in-memory FIFO queue and a synchronous delivery coordinator with bounded hop retries, duplicate suppression, and local acknowledgement tracking. It does not yet implement on-wire acknowledgement packets, timeout scheduling, or durable storage across restarts.
+
+The simulation and experiment layer (`simulation/`, `experiments/`) provides `SimulationRunner`, reproducible packet-loss and relay node-failure scenarios, JSON summary export, and side-by-side baseline vs. ML-assisted routing comparison (`python3 -m experiments.compare_algorithms`). See [the roadmap](roadmap.md) for the verified checklist.

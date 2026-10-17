@@ -3,10 +3,14 @@
 import unittest
 from datetime import datetime
 
+from core.events import EventType, NetworkEvent
 from core.message import Message
 from core.network import Network
 from core.node import Node
 from core.packet import Packet
+from monitoring.diagnostics import diagnose_network
+from radio.modes import LoRaModulationConfig, RadioMode
+from radio.radio_interface import RadioInterface
 from radio.simulator import RadioSimulator
 
 
@@ -43,17 +47,43 @@ class CoreModelTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             network.add_link("a", "missing")
 
+    def test_domain_events_and_network_diagnostics(self) -> None:
+        evt = NetworkEvent(EventType.MESSAGE_DELIVERED, "a", {"message_id": "m1"})
+        self.assertEqual(evt.event_type, EventType.MESSAGE_DELIVERED)
+        with self.assertRaises(ValueError):
+            NetworkEvent(EventType.MESSAGE_DELIVERED, "  ")
+
+        network = sample_network()
+        network.add_node(Node("isolated"))
+        network.add_node(Node("offline", available=False))
+        report = diagnose_network(network)
+        self.assertEqual(report.total_nodes, 4)
+        self.assertEqual(report.available_nodes, 3)
+        self.assertEqual(report.unavailable_nodes, ("offline",))
+        self.assertEqual(report.isolated_nodes, ("isolated",))
+        self.assertEqual(report.active_link_count, 1)
+
 
 class RadioSimulatorTests(unittest.TestCase):
     def test_success_and_seeded_latency(self) -> None:
         first = RadioSimulator(sample_network(), latency_range=(0.2, 0.8), seed=17)
         second = RadioSimulator(sample_network(), latency_range=(0.2, 0.8), seed=17)
+        self.assertIsInstance(first, RadioInterface)
         result = first.transmit("a", "b")
         self.assertTrue(result.delivered)
         self.assertEqual(result.reason, "delivered")
         self.assertEqual(result, second.transmit("a", "b"))
         self.assertGreaterEqual(result.latency_seconds, 0.2)
         self.assertLessEqual(result.latency_seconds, 0.8)
+
+    def test_lora_modulation_config_validation(self) -> None:
+        cfg = LoRaModulationConfig(frequency_mhz=868.1, spreading_factor=7, bandwidth_khz=125.0)
+        self.assertEqual(cfg.coding_rate, 5)
+        self.assertEqual(RadioMode.RX.value, "rx")
+        with self.assertRaises(ValueError):
+            LoRaModulationConfig(spreading_factor=13)
+        with self.assertRaises(ValueError):
+            LoRaModulationConfig(bandwidth_khz=99.0)
 
     def test_loss_unavailability_and_missing_link(self) -> None:
         network = sample_network()

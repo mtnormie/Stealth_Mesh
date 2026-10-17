@@ -1,0 +1,5 @@
+# Structured event logging configuration
+logging:
+  level: INFO
+  record_route_events: true
+  redact_payload_contents: true
