@@ -2,6 +2,7 @@
 
 import unittest
 
+from app.services.status_service import NetworkSandboxService
 from core.network import Network
 from core.node import Node
 from radio.link_quality import LinkObservation, LinkQualityTracker
@@ -91,6 +92,24 @@ class DijkstraTests(unittest.TestCase):
         self.assertEqual(summary.sample_count, 2)
         self.assertAlmostEqual(summary.delivery_ratio, 0.5)
         self.assertAlmostEqual(summary.mean_rssi_dbm, -85.0)
+
+    def test_network_sandbox_service_toggle_add_and_simulate(self) -> None:
+        sandbox = NetworkSandboxService(seed=42)
+        state = sandbox.get_state()
+        routing = state["routing"]
+        self.assertEqual(routing["ml_route"], ["N1", "N2", "N4", "N6"])
+        self.assertGreaterEqual(routing["ml_compute_us"], 0.0)
+
+        # Turn off N2 -> route immediately fails over to N1 -> N3 -> N5 -> N6
+        toggled = sandbox.toggle_node("N2", available=False)
+        self.assertEqual(toggled["routing"]["ml_route"], ["N1", "N3", "N5", "N6"])
+
+        # Add a new node N7 and simulate packet delivery
+        added = sandbox.add_node("N7", 450.0, 260.0, auto_link_radius=300.0)
+        self.assertEqual(added["diagnostics"]["total_nodes"], 7)
+        sim = sandbox.simulate_packet("N1", "N6", routing_mode="ml")
+        self.assertIn("simulation", sim)
+        self.assertGreater(len(sim["simulation"]["hop_trace"]), 0)
 
 
 if __name__ == "__main__":

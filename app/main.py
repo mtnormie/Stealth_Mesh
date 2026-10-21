@@ -3,25 +3,29 @@
 from __future__ import annotations
 
 import json
+from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from urllib.parse import parse_qs, urlparse
 
-import qrcode
-
 from app.services.group_service import GroupService
+from app.services.status_service import NetworkSandboxService
+from app.ui.network_view import NETWORK_VIEW_HTML
 
 _SERVICE = GroupService()
+_SANDBOX = NetworkSandboxService()
 
 _PAGE = """<!doctype html>
 <html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Stealth Mesh</title><style>
 *{box-sizing:border-box}body{margin:0;background:#101820;color:#e9f0f4;font:16px system-ui,sans-serif}
 main{max-width:850px;margin:32px auto;padding:20px}.card{background:#1b2934;border:1px solid #334957;border-radius:14px;padding:20px;margin:16px 0}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 h1{margin:0;color:#7de2c3}input,select,button{font:inherit;padding:11px;border-radius:8px;border:1px solid #536977;background:#101820;color:inherit}
 button{background:#147d68;border:0;cursor:pointer}form{display:flex;gap:8px;margin:10px 0}form input{flex:1}#messages{height:300px;overflow:auto;border:1px solid #334957;border-radius:8px;padding:12px}
 .msg{padding:8px 0;border-bottom:1px solid #334957;overflow-wrap:anywhere}.muted{color:#aab9c2;font-size:.9em}#qr{max-width:210px;background:white;padding:8px}
-</style></head><body><main><header><h1>Stealth Mesh</h1><button id="language">English</button></header><p class="muted" data-en="Local prototype for AES-256-GCM encrypted group messaging.">Локальний прототип групового обміну повідомленнями з AES-256-GCM.</p>
+.navlink{color:#7de2c3;text-decoration:none;padding:9px 14px;border:1px solid #22a88d;border-radius:8px;background:#152c36;font-weight:600}
+</style></head><body><main><header><h1>Stealth Mesh</h1><div style="display:flex;gap:10px;align-items:center"><a class="navlink" href="/network" data-en="Open Routing Visualizer">Візуалізатор маршрутизації →</a><button id="language">English</button></div></header><p class="muted" data-en="Local prototype for AES-256-GCM encrypted group messaging.">Локальний прототип групового обміну повідомленнями з AES-256-GCM.</p>
 <section class="card"><h2 data-en="Groups">Групи</h2><form id="create"><input name="name" placeholder="Назва нової групи" data-placeholder-en="New group name" maxlength="80" required><button data-en="Create">Створити</button></form>
 <form id="join"><input name="token" placeholder="Одноразовий код запрошення" data-placeholder-en="One-time invitation code" required><button data-en="Join">Приєднатися</button></form><select id="groups"><option value="" data-en="Choose a group">Виберіть групу</option></select>
 <button id="invite" data-en="Create QR invitation">Створити QR-запрошення</button><div id="invitation"></div></section>
@@ -57,6 +61,10 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             if parsed.path == "/":
                 self._send(200, _PAGE.encode(), "text/html; charset=utf-8")
+            elif parsed.path == "/network":
+                self._send(200, NETWORK_VIEW_HTML.encode(), "text/html; charset=utf-8")
+            elif parsed.path == "/api/network/state":
+                self._json(200, _SANDBOX.get_state())
             elif parsed.path == "/api/groups":
                 self._json(200, _SERVICE.list_groups())
             elif parsed.path == "/api/messages":
@@ -65,10 +73,23 @@ class _Handler(BaseHTTPRequestHandler):
                 data = query.get("data", [""])[0]
                 if not data or len(data) > 2048:
                     raise ValueError("invalid QR content")
-                image = qrcode.make(data)
-                buffer = BytesIO()
-                image.save(buffer, format="PNG")
-                self._send(200, buffer.getvalue(), "image/png")
+                try:
+                    import qrcode  # type: ignore[import-not-found]
+
+                    image = qrcode.make(data)
+                    buffer = BytesIO()
+                    image.save(buffer, format="PNG")
+                    self._send(200, buffer.getvalue(), "image/png")
+                except ImportError:
+                    svg = (
+                        '<svg xmlns="http://www.w3.org/2000/svg" width="210" height="80">'
+                        '<rect width="100%" height="100%" fill="#fff"/>'
+                        '<text x="10" y="35" fill="#101820" font-size="11" font-family="monospace">'
+                        f"{escape(data[:32])}</text>"
+                        '<text x="10" y="55" fill="#101820" font-size="11" font-family="monospace">'
+                        f"{escape(data[32:64])}</text></svg>"
+                    )
+                    self._send(200, svg.encode("utf-8"), "image/svg+xml; charset=utf-8")
             else:
                 self._json(404, {"error": "not found"})
         except (KeyError, ValueError, TypeError) as error:
@@ -78,13 +99,60 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             data = self._read_json()
             if self.path == "/api/groups":
-                result = _SERVICE.create_group(data.get("name", ""))
+                result: object = _SERVICE.create_group(str(data.get("name", "")))
             elif self.path == "/api/invitations":
-                result = _SERVICE.create_invitation(data.get("group_id", ""), "http://127.0.0.1:8765/")
+                result = _SERVICE.create_invitation(str(data.get("group_id", "")), "http://127.0.0.1:8765/")
             elif self.path == "/api/join":
-                result = _SERVICE.join_group(data.get("token", ""))
+                result = _SERVICE.join_group(str(data.get("token", "")))
             elif self.path == "/api/messages":
-                result = _SERVICE.send_message(data.get("group_id", ""), data.get("sender", ""), data.get("body", ""))
+                result = _SERVICE.send_message(
+                    str(data.get("group_id", "")),
+                    str(data.get("sender", "")),
+                    str(data.get("body", "")),
+                )
+            elif self.path == "/api/network/node/add":
+                result = _SANDBOX.add_node(
+                    data.get("node_id"),  # type: ignore[arg-type]
+                    float(data.get("x", 200.0)),  # type: ignore[arg-type]
+                    float(data.get("y", 200.0)),  # type: ignore[arg-type]
+                    auto_link_radius=float(data.get("auto_link_radius", 290.0)),  # type: ignore[arg-type]
+                )
+            elif self.path == "/api/network/node/toggle":
+                avail = data.get("available")
+                result = _SANDBOX.toggle_node(
+                    str(data.get("node_id", "")),
+                    available=bool(avail) if isinstance(avail, bool) else None,
+                )
+            elif self.path == "/api/network/node/move":
+                result = _SANDBOX.move_node(
+                    str(data.get("node_id", "")),
+                    float(data.get("x", 100.0)),  # type: ignore[arg-type]
+                    float(data.get("y", 100.0)),  # type: ignore[arg-type]
+                )
+            elif self.path == "/api/network/link/set":
+                result = _SANDBOX.set_link(
+                    str(data.get("first", "")),
+                    str(data.get("second", "")),
+                    cost=float(data.get("cost", 1.0)),  # type: ignore[arg-type]
+                    loss_probability=float(data.get("loss_probability", 0.02)),  # type: ignore[arg-type]
+                    latency_ms=float(data.get("latency_ms", 45.0)),  # type: ignore[arg-type]
+                    rssi_dbm=float(data.get("rssi_dbm", -72.0)),  # type: ignore[arg-type]
+                    snr_db=float(data.get("snr_db", 9.5)),  # type: ignore[arg-type]
+                )
+            elif self.path == "/api/network/link/remove":
+                result = _SANDBOX.remove_link(str(data.get("first", "")), str(data.get("second", "")))
+            elif self.path == "/api/network/endpoints":
+                result = _SANDBOX.set_endpoints(str(data.get("source", "")), str(data.get("destination", "")))
+            elif self.path == "/api/network/reset":
+                result = _SANDBOX.reset_default_topology()
+            elif self.path == "/api/network/clear":
+                result = _SANDBOX.clear_topology()
+            elif self.path == "/api/network/simulate":
+                result = _SANDBOX.simulate_packet(
+                    str(data.get("source", "")),
+                    str(data.get("destination", "")),
+                    routing_mode=str(data.get("routing_mode", "ml")),
+                )
             else:
                 self._json(404, {"error": "not found"})
                 return
@@ -92,7 +160,7 @@ class _Handler(BaseHTTPRequestHandler):
         except (KeyError, ValueError, TypeError, json.JSONDecodeError) as error:
             self._json(400, {"error": str(error)})
 
-    def _read_json(self) -> dict[str, str]:
+    def _read_json(self) -> dict[str, object]:
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError as error:
