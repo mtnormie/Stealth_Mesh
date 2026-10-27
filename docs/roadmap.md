@@ -11,7 +11,7 @@ does not count as an implemented feature.
 - [x] Project architecture, protocol intent, threat model, hardware notes, and
   experiment guidance are documented.
 - [x] Core message, packet, node, topology, network, and domain-event models with
-  validation.
+  validation and CRC-32 protected binary wire-format serialization (`Packet.to_bytes` / `Packet.from_bytes`).
 - [x] Seeded radio simulation (`RadioSimulator`), `RadioInterface` protocol,
   `LoRaModulationConfig` validation, and rolling `LinkQualityTracker` observations;
   it does not perform physical radio communication.
@@ -29,8 +29,10 @@ does not count as an implemented feature.
   regression training (`ml/train.py`), `MLLinkQualityPredictor` with fallback to
   `BaselineLinkEstimator` (`ml/predict.py`), held-out evaluation (`ml/evaluate.py`),
   and reproducible baseline vs. ML routing comparison (`experiments/compare_algorithms.py`).
-- [x] AES-256-GCM authenticated encryption helper, random 256-bit group-key
-  generation, and in-memory encrypted group messaging prototype.
+- [x] AES-256-GCM authenticated encryption helper, RFC 5869 HKDF-SHA256 subkey
+  derivation, versioned `KeyManager` rotation, constant-time HMAC-SHA256 sender
+  authentication (`MessageAuthenticator`), sliding-window anti-replay (`ReplayWindow`),
+  and in-memory encrypted group messaging prototype.
 - [x] Local web UI for creating groups, sending messages, QR-rendered
   single-use invitation tokens, and joining by token.
 - [x] Automated unit tests across core, radio, routing, transport, failure scenarios,
@@ -56,7 +58,7 @@ does not count as an implemented feature.
   node availability, and seeded outcomes.
 - [x] Test model validation and radio success, loss, unavailable nodes, missing
   links, and invalid parameters.
-- [ ] Add binary wire-format serialization when physical radio transport is integrated.
+- [x] Add binary wire-format serialization with CRC-32 frame integrity checks (`core/packet.py`).
 
 ### 2. Deterministic baseline routing
 
@@ -91,8 +93,10 @@ does not count as an implemented feature.
 
 - [x] Select a maintained authenticated-encryption dependency and implement
   AES-256-GCM message protection for the local prototype.
-- [ ] Define persistent key lifecycle, sender authentication, replay policy,
-  and cross-device group membership/key provisioning.
+- [x] Implement RFC 5869 HKDF-SHA256 subkey derivation, versioned key rotation
+  (`KeyManager`), HMAC-SHA256 sender authentication (`MessageAuthenticator`), and
+  sliding-window replay protection (`ReplayWindow`).
+- [ ] Add persistent hardware-backed key storage and cross-device asymmetric key provisioning.
 - [x] Add security tests and document assumptions and limitations.
 
 ### 7. Application and hardware
@@ -106,6 +110,6 @@ does not count as an implemented feature.
 ## Verification
 
 - `python3 -m compileall -q app core radio routing transport monitoring simulation ml security experiments tests`
-- `python3 -m unittest discover -s tests -v` (39 tests passed)
+- `python3 -m unittest discover -s tests -v` (43 tests passed)
 - `python3 -m experiments.compare_algorithms`
 - `git diff --check`
