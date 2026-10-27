@@ -96,68 +96,75 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": str(error)})
 
     def do_POST(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        path = parsed.path
         try:
             data = self._read_json()
-            if self.path == "/api/groups":
-                result: object = _SERVICE.create_group(str(data.get("name", "")))
-            elif self.path == "/api/invitations":
-                result = _SERVICE.create_invitation(str(data.get("group_id", "")), "http://127.0.0.1:8765/")
-            elif self.path == "/api/join":
-                result = _SERVICE.join_group(str(data.get("token", "")))
-            elif self.path == "/api/messages":
+            if path == "/api/groups":
+                result: object = _SERVICE.create_group(_require_str(data, "name"))
+            elif path == "/api/invitations":
+                result = _SERVICE.create_invitation(_require_str(data, "group_id"), "http://127.0.0.1:8765/")
+            elif path == "/api/join":
+                result = _SERVICE.join_group(_require_str(data, "token"))
+            elif path == "/api/messages":
                 result = _SERVICE.send_message(
-                    str(data.get("group_id", "")),
-                    str(data.get("sender", "")),
-                    str(data.get("body", "")),
+                    _require_str(data, "group_id"),
+                    _require_str(data, "sender"),
+                    _require_str(data, "body"),
                 )
-            elif self.path == "/api/network/node/add":
+            elif path == "/api/network/node/add":
+                raw_node_id = data.get("node_id")
+                if raw_node_id is not None and not isinstance(raw_node_id, str):
+                    raise TypeError("node_id must be a string or null")
                 result = _SANDBOX.add_node(
-                    data.get("node_id"),  # type: ignore[arg-type]
-                    float(data.get("x", 200.0)),  # type: ignore[arg-type]
-                    float(data.get("y", 200.0)),  # type: ignore[arg-type]
-                    auto_link_radius=float(data.get("auto_link_radius", 290.0)),  # type: ignore[arg-type]
+                    raw_node_id,
+                    _require_float(data, "x", 200.0),
+                    _require_float(data, "y", 200.0),
+                    auto_link_radius=_require_float(data, "auto_link_radius", 290.0),
                 )
-            elif self.path == "/api/network/node/toggle":
+            elif path == "/api/network/node/toggle":
                 avail = data.get("available")
+                if avail is not None and not isinstance(avail, bool):
+                    raise TypeError("available must be a boolean or null")
                 result = _SANDBOX.toggle_node(
-                    str(data.get("node_id", "")),
-                    available=bool(avail) if isinstance(avail, bool) else None,
+                    _require_str(data, "node_id"),
+                    available=avail,
                 )
-            elif self.path == "/api/network/node/move":
+            elif path == "/api/network/node/move":
                 result = _SANDBOX.move_node(
-                    str(data.get("node_id", "")),
-                    float(data.get("x", 100.0)),  # type: ignore[arg-type]
-                    float(data.get("y", 100.0)),  # type: ignore[arg-type]
+                    _require_str(data, "node_id"),
+                    _require_float(data, "x", 100.0),
+                    _require_float(data, "y", 100.0),
                 )
-            elif self.path == "/api/network/link/set":
+            elif path == "/api/network/link/set":
                 result = _SANDBOX.set_link(
-                    str(data.get("first", "")),
-                    str(data.get("second", "")),
-                    cost=float(data.get("cost", 1.0)),  # type: ignore[arg-type]
-                    loss_probability=float(data.get("loss_probability", 0.02)),  # type: ignore[arg-type]
-                    latency_ms=float(data.get("latency_ms", 45.0)),  # type: ignore[arg-type]
-                    rssi_dbm=float(data.get("rssi_dbm", -72.0)),  # type: ignore[arg-type]
-                    snr_db=float(data.get("snr_db", 9.5)),  # type: ignore[arg-type]
+                    _require_str(data, "first"),
+                    _require_str(data, "second"),
+                    cost=_require_float(data, "cost", 1.0),
+                    loss_probability=_require_float(data, "loss_probability", 0.02),
+                    latency_ms=_require_float(data, "latency_ms", 45.0),
+                    rssi_dbm=_require_float(data, "rssi_dbm", -72.0),
+                    snr_db=_require_float(data, "snr_db", 9.5),
                 )
-            elif self.path == "/api/network/link/remove":
-                result = _SANDBOX.remove_link(str(data.get("first", "")), str(data.get("second", "")))
-            elif self.path == "/api/network/endpoints":
-                result = _SANDBOX.set_endpoints(str(data.get("source", "")), str(data.get("destination", "")))
-            elif self.path == "/api/network/reset":
+            elif path == "/api/network/link/remove":
+                result = _SANDBOX.remove_link(_require_str(data, "first"), _require_str(data, "second"))
+            elif path == "/api/network/endpoints":
+                result = _SANDBOX.set_endpoints(_require_str(data, "source"), _require_str(data, "destination"))
+            elif path == "/api/network/reset":
                 result = _SANDBOX.reset_default_topology()
-            elif self.path == "/api/network/clear":
+            elif path == "/api/network/clear":
                 result = _SANDBOX.clear_topology()
-            elif self.path == "/api/network/simulate":
+            elif path == "/api/network/simulate":
                 result = _SANDBOX.simulate_packet(
-                    str(data.get("source", "")),
-                    str(data.get("destination", "")),
-                    routing_mode=str(data.get("routing_mode", "ml")),
+                    _require_str(data, "source"),
+                    _require_str(data, "destination"),
+                    routing_mode=_require_str(data, "routing_mode", default="ml"),
                 )
             else:
                 self._json(404, {"error": "not found"})
                 return
             self._json(200, result)
-        except (KeyError, ValueError, TypeError, json.JSONDecodeError) as error:
+        except (KeyError, ValueError, TypeError, OverflowError, RecursionError, json.JSONDecodeError) as error:
             self._json(400, {"error": str(error)})
 
     def _read_json(self) -> dict[str, object]:
@@ -186,6 +193,20 @@ class _Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
+
+
+def _require_str(data: dict[str, object], key: str, *, default: str | None = None) -> str:
+    value = data.get(key, default)
+    if not isinstance(value, str):
+        raise TypeError(f"{key} must be a string")
+    return value
+
+
+def _require_float(data: dict[str, object], key: str, default: float) -> float:
+    value = data.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{key} must be a number")
+    return float(value)
 
 
 def main() -> None:
