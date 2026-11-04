@@ -1,74 +1,158 @@
-"""Run the local Stealth Mesh prototype web interface."""
+"""Run the Stealth Mesh prototype web & iPhone PWA interface."""
 
 from __future__ import annotations
 
-import json
-from html import escape
+from collections import OrderedDict, deque
+import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
+import json
+import os
+import re
+import secrets
+import socket
+import threading
+import time
 from urllib.parse import parse_qs, urlparse
 
 from app.services.group_service import GroupService
+from app.services.message_service import MeshMessageService
 from app.services.status_service import NetworkSandboxService
+from app.ui.chat_view import CHAT_VIEW_HTML
 from app.ui.network_view import NETWORK_VIEW_HTML
+from app.ui.settings_view import APP_ICON_SVG, PWA_MANIFEST_JSON, detect_lan_ip, render_qr_svg
 
 _SERVICE = GroupService()
 _SANDBOX = NetworkSandboxService()
+_MESH_MESSAGES = MeshMessageService(_SERVICE, _SANDBOX)
 
-_PAGE = """<!doctype html>
-<html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Stealth Mesh</title><style>
-*{box-sizing:border-box}body{margin:0;background:#101820;color:#e9f0f4;font:16px system-ui,sans-serif}
-main{max-width:850px;margin:32px auto;padding:20px}.card{background:#1b2934;border:1px solid #334957;border-radius:14px;padding:20px;margin:16px 0}
-header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
-h1{margin:0;color:#7de2c3}input,select,button{font:inherit;padding:11px;border-radius:8px;border:1px solid #536977;background:#101820;color:inherit}
-button{background:#147d68;border:0;cursor:pointer}form{display:flex;gap:8px;margin:10px 0}form input{flex:1}#messages{height:300px;overflow:auto;border:1px solid #334957;border-radius:8px;padding:12px}
-.msg{padding:8px 0;border-bottom:1px solid #334957;overflow-wrap:anywhere}.muted{color:#aab9c2;font-size:.9em}#qr{max-width:210px;background:white;padding:8px}
-.navlink{color:#7de2c3;text-decoration:none;padding:9px 14px;border:1px solid #22a88d;border-radius:8px;background:#152c36;font-weight:600}
-</style></head><body><main><header><h1>Stealth Mesh</h1><div style="display:flex;gap:10px;align-items:center"><a class="navlink" href="/network" data-en="Open Routing Visualizer">Візуалізатор маршрутизації →</a><button id="language">English</button></div></header><p class="muted" data-en="Local prototype for AES-256-GCM encrypted group messaging.">Локальний прототип групового обміну повідомленнями з AES-256-GCM.</p>
-<section class="card"><h2 data-en="Groups">Групи</h2><form id="create"><input name="name" placeholder="Назва нової групи" data-placeholder-en="New group name" maxlength="80" required><button data-en="Create">Створити</button></form>
-<form id="join"><input name="token" placeholder="Одноразовий код запрошення" data-placeholder-en="One-time invitation code" required><button data-en="Join">Приєднатися</button></form><select id="groups"><option value="" data-en="Choose a group">Виберіть групу</option></select>
-<button id="invite" data-en="Create QR invitation">Створити QR-запрошення</button><div id="invitation"></div></section>
-<section class="card"><h2 data-en="Messages">Повідомлення</h2><label><span data-en="Your name">Ваше ім’я</span> <input id="sender" value="Учасник" maxlength="80"></label><div id="messages"></div>
-<form id="send"><input name="body" placeholder="Повідомлення" data-placeholder-en="Message" maxlength="4000" required><button data-en="Send">Надіслати</button></form></section>
-<p class="muted" data-en="Groups and data are stored in this process memory. QR invitations can be used once and work only while this app instance is running.">Дані та групи зберігаються в пам’яті цього процесу. QR-запрошення одноразове й діє лише поки запущено цей екземпляр.</p>
-<script>
-let language=localStorage.getItem('stealth-mesh-language')||'uk';
-function applyLanguage(){document.documentElement.lang=language;document.querySelectorAll('[data-en]').forEach(e=>{if(language==='en')e.textContent=e.dataset.en;else e.textContent=e.dataset.uk||e.dataset.original||e.textContent});document.querySelectorAll('[data-placeholder-en]').forEach(e=>{if(!e.dataset.placeholderUk)e.dataset.placeholderUk=e.placeholder;e.placeholder=language==='en'?e.dataset.placeholderEn:e.dataset.placeholderUk});document.querySelector('#language').textContent=language==='uk'?'English':'Українська';document.querySelector('#invitation').replaceChildren()}
-document.querySelectorAll('[data-en]').forEach(e=>e.dataset.uk=e.textContent);document.querySelector('#language').onclick=()=>{language=language==='uk'?'en':'uk';localStorage.setItem('stealth-mesh-language',language);applyLanguage()};
-const api=async(path,data)=>{const r=await fetch(path,data?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}:{});const j=await r.json();if(!r.ok)throw Error(j.error||'Помилка запиту');return j};
-const groups=document.querySelector('#groups'),messages=document.querySelector('#messages');let active='';
-function showError(e){alert(language==='uk'?({'group not found':'Групу не знайдено.','invitation is invalid or has already been used':'Запрошення недійсне або вже використане.','group name must contain 1 to 80 characters':'Назва групи має містити від 1 до 80 символів.','sender must contain 1 to 80 characters':'Ім’я має містити від 1 до 80 символів.','message must contain 1 to 4000 characters':'Повідомлення має містити від 1 до 4000 символів.'}[e.message]||'Сталася помилка.'):({'group not found':'Group not found.','invitation is invalid or has already been used':'Invitation is invalid or has already been used.','group name must contain 1 to 80 characters':'Group name must contain 1 to 80 characters.','sender must contain 1 to 80 characters':'Name must contain 1 to 80 characters.','message must contain 1 to 4000 characters':'Message must contain 1 to 4000 characters.'}[e.message]||'Request failed.'))}
-async function refreshGroups(selectId){const list=await api('/api/groups');groups.replaceChildren(new Option(language==='uk'?'Виберіть групу':'Choose a group',''));for(const g of list)groups.add(new Option(g.name,g.group_id));if(selectId)groups.value=selectId;active=groups.value;await refreshMessages()}
-async function refreshMessages(){active=groups.value;messages.replaceChildren();if(!active)return;for(const m of await api('/api/messages?group_id='+encodeURIComponent(active))){const row=document.createElement('div');row.className='msg';row.textContent=`${m.created_at} · ${m.sender}: ${m.body}`;messages.append(row)}messages.scrollTop=messages.scrollHeight}
-document.querySelector('#create').onsubmit=async e=>{e.preventDefault();try{const g=await api('/api/groups',{name:e.target.name.value});e.target.reset();await refreshGroups(g.group_id)}catch(x){showError(x)}};
-document.querySelector('#join').onsubmit=async e=>{e.preventDefault();try{const g=await api('/api/join',{token:e.target.token.value.trim()});e.target.reset();await refreshGroups(g.group_id)}catch(x){showError(x)}};
-groups.onchange=refreshMessages;
-document.querySelector('#invite').onclick=async()=>{try{if(!groups.value)throw Error(language==='uk'?'Спочатку виберіть групу.':'Choose a group first.');const v=await api('/api/invitations',{group_id:groups.value});const box=document.querySelector('#invitation');const p1=document.createElement('p');p1.textContent=language==='uk'?'Одноразовий код: ':'One-time code: ';const code=document.createElement('code');code.textContent=v.token;p1.append(code);const img=document.createElement('img');img.id='qr';img.alt=language==='uk'?'QR-запрошення':'QR invitation';img.src='/qr?data='+encodeURIComponent(v.url);const p2=document.createElement('p');p2.className='muted';p2.textContent=language==='uk'?'Відскануйте QR-код, щоб відкрити запрошення в цьому екземплярі застосунку.':'Scan the QR code to open the invitation in this app instance.';box.replaceChildren(p1,img,p2)}catch(x){showError(x)}};
-document.querySelector('#send').onsubmit=async e=>{e.preventDefault();try{if(!groups.value)throw Error(language==='uk'?'Виберіть групу перед надсиланням.':'Choose a group before sending.');await api('/api/messages',{group_id:groups.value,sender:document.querySelector('#sender').value,body:e.target.body.value});e.target.reset();await refreshMessages()}catch(x){showError(x)}};
-applyLanguage();
-const params=new URLSearchParams(location.search);if(params.has('join')){document.querySelector('#join [name=token]').value=params.get('join');history.replaceState({},'',location.pathname)}
-refreshGroups().catch(showError);setInterval(()=>refreshMessages().catch(()=>{}),3000);
-</script></main></body></html>"""
+_HOST_RE = re.compile(r"^([A-Za-z0-9._-]+)(?::(\d{1,5}))?$")
+_DEFAULT_ADMIN_TOKEN = secrets.token_urlsafe(24)
+_RATE_LOCK = threading.Lock()
+_POST_HISTORY: OrderedDict[str, deque[float]] = OrderedDict()
+_RATE_LIMIT_MAX_POSTS = 60
+_RATE_LIMIT_WINDOW_SEC = 10.0
+
+
+def _check_rate_limit(client_ip: str) -> bool:
+    now = time.monotonic()
+    with _RATE_LOCK:
+        bucket = _POST_HISTORY.get(client_ip)
+        if bucket is None:
+            while len(_POST_HISTORY) >= 512:
+                _POST_HISTORY.popitem(last=False)
+            bucket = deque()
+            _POST_HISTORY[client_ip] = bucket
+        else:
+            _POST_HISTORY.move_to_end(client_ip)
+        while bucket and (now - bucket[0]) > _RATE_LIMIT_WINDOW_SEC:
+            bucket.popleft()
+        if len(bucket) >= _RATE_LIMIT_MAX_POSTS:
+            return False
+        bucket.append(now)
+        return True
+
+
+class _BoundedHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer with daemon threads and bounded concurrency."""
+
+    daemon_threads = True
+    _concurrency_sem = threading.BoundedSemaphore(32)
+
+    def process_request(self, request: object, client_address: object) -> None:
+        if not self._concurrency_sem.acquire(blocking=False):
+            self.close_request(request)  # type: ignore[arg-type]
+            return
+        super().process_request(request, client_address)
+
+    def process_request_thread(self, request: object, client_address: object) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._concurrency_sem.release()
 
 
 class _Handler(BaseHTTPRequestHandler):
-    server_version = "StealthMesh/0.1"
+    server_version = "StealthMesh/0.2"
+    timeout = 5.0
+
+    def _is_loopback(self) -> bool:
+        client_ip = str(self.client_address[0]) if self.client_address else ""
+        return client_ip in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+
+    def _is_admin_authorized(self) -> bool:
+        env_token = os.environ.get("STEALTH_MESH_ADMIN_TOKEN", "").strip()
+        if not env_token and self._is_loopback():
+            return True
+        expected = env_token or _DEFAULT_ADMIN_TOKEN
+        auth_hdr = self.headers.get("Authorization", "").strip()
+        token = auth_hdr[7:].strip() if auth_hdr.lower().startswith("bearer ") else self.headers.get("X-Admin-Token", "").strip()
+        return bool(token) and hmac.compare_digest(token.encode("utf-8"), expected.encode("utf-8"))
+
+    def _is_group_authorized(self, group_id: str) -> bool:
+        group_token = self.headers.get("X-Group-Token", "").strip()
+        if group_token:
+            return _SERVICE.verify_member_token(group_id, group_token)
+        return self._is_loopback()
+
+    def _base_url(self) -> str:
+        lan_ip = detect_lan_ip()
+        bind_port = int(os.environ.get("STEALTH_MESH_PORT", "8765"))
+        host_hdr = self.headers.get("Host", "").strip()
+        match = _HOST_RE.match(host_hdr)
+        if match:
+            host_only = match.group(1)
+            allowed_hosts = {lan_ip, "192.168.4.1"}
+            if host_only in allowed_hosts:
+                return f"http://{host_hdr}/"
+        return f"http://{lan_ip}:{bind_port}/"
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
         try:
             if parsed.path == "/":
-                self._send(200, _PAGE.encode(), "text/html; charset=utf-8")
-            elif parsed.path == "/network":
-                self._send(200, NETWORK_VIEW_HTML.encode(), "text/html; charset=utf-8")
+                self._send(200, CHAT_VIEW_HTML.encode("utf-8"), "text/html; charset=utf-8")
+            elif parsed.path == "/manifest.json":
+                self._send(
+                    200,
+                    PWA_MANIFEST_JSON.encode("utf-8"),
+                    "application/manifest+json; charset=utf-8",
+                )
+            elif parsed.path == "/icon.svg":
+                self._send(200, APP_ICON_SVG.encode("utf-8"), "image/svg+xml; charset=utf-8")
+            elif parsed.path in ("/admin", "/network"):
+                if not self._is_admin_authorized():
+                    self._json(401, {"error": "admin authorization required"})
+                    return
+                self._send(200, NETWORK_VIEW_HTML.encode("utf-8"), "text/html; charset=utf-8")
             elif parsed.path == "/api/network/state":
+                if not self._is_admin_authorized():
+                    self._json(401, {"error": "admin authorization required"})
+                    return
                 self._json(200, _SANDBOX.get_state())
             elif parsed.path == "/api/groups":
-                self._json(200, _SERVICE.list_groups())
+                all_groups = _SERVICE.list_groups()
+                raw_tokens = self.headers.get("X-Group-Tokens", "").strip()
+                if raw_tokens or not self._is_loopback():
+                    token_map: dict[str, str] = {}
+                    for pair in raw_tokens.split(","):
+                        if ":" in pair:
+                            k, v = pair.split(":", 1)
+                            token_map[k.strip()] = v.strip()
+                    visible = [
+                        g for g in all_groups
+                        if _SERVICE.verify_member_token(g["group_id"], token_map.get(g["group_id"]))
+                    ]
+                    self._json(200, visible)
+                else:
+                    self._json(200, all_groups)
             elif parsed.path == "/api/messages":
-                self._json(200, _SERVICE.list_messages(query.get("group_id", [""])[0]))
+                gid = query.get("group_id", [""])[0]
+                if not self._is_group_authorized(gid):
+                    self._json(403, {"error": "group membership token required"})
+                    return
+                self._json(200, _SERVICE.list_messages(gid))
             elif parsed.path == "/qr":
                 data = query.get("data", [""])[0]
                 if not data or len(data) > 2048:
@@ -81,14 +165,7 @@ class _Handler(BaseHTTPRequestHandler):
                     image.save(buffer, format="PNG")
                     self._send(200, buffer.getvalue(), "image/png")
                 except ImportError:
-                    svg = (
-                        '<svg xmlns="http://www.w3.org/2000/svg" width="210" height="80">'
-                        '<rect width="100%" height="100%" fill="#fff"/>'
-                        '<text x="10" y="35" fill="#101820" font-size="11" font-family="monospace">'
-                        f"{escape(data[:32])}</text>"
-                        '<text x="10" y="55" fill="#101820" font-size="11" font-family="monospace">'
-                        f"{escape(data[32:64])}</text></svg>"
-                    )
+                    svg = render_qr_svg(data)
                     self._send(200, svg.encode("utf-8"), "image/svg+xml; charset=utf-8")
             else:
                 self._json(404, {"error": "not found"})
@@ -98,17 +175,53 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path
+        client_ip = str(self.client_address[0]) if self.client_address else "unknown"
+        if not _check_rate_limit(client_ip):
+            self._json(429, {"error": "rate limit exceeded"})
+            return
+
+        sec_fetch_site = self.headers.get("Sec-Fetch-Site", "").strip().lower()
+        if sec_fetch_site and sec_fetch_site not in ("same-origin", "none"):
+            self._json(403, {"error": "cross-origin POST forbidden"})
+            return
+
+        origin_hdr = self.headers.get("Origin", "").strip()
+        host_hdr = self.headers.get("Host", "").strip()
+        if origin_hdr and host_hdr:
+            parsed_origin = urlparse(origin_hdr)
+            if parsed_origin.netloc and parsed_origin.netloc.lower() != host_hdr.lower():
+                self._json(403, {"error": "origin mismatch"})
+                return
+
+        if path.startswith("/api/network/") or path == "/api/groups/rotate":
+            if not self._is_admin_authorized():
+                self._json(401, {"error": "admin authorization required"})
+                return
+
         try:
             data = self._read_json()
             if path == "/api/groups":
                 result: object = _SERVICE.create_group(_require_str(data, "name"))
+            elif path == "/api/groups/rotate":
+                result = _SERVICE.rotate_group_key(_require_str(data, "group_id"))
             elif path == "/api/invitations":
-                result = _SERVICE.create_invitation(_require_str(data, "group_id"), "http://127.0.0.1:8765/")
+                gid = _require_str(data, "group_id")
+                if not self._is_group_authorized(gid):
+                    self._json(403, {"error": "group membership token required"})
+                    return
+                result = _SERVICE.create_invitation(
+                    gid,
+                    self._base_url(),
+                )
             elif path == "/api/join":
                 result = _SERVICE.join_group(_require_str(data, "token"))
             elif path == "/api/messages":
-                result = _SERVICE.send_message(
-                    _require_str(data, "group_id"),
+                gid = _require_str(data, "group_id")
+                if not self._is_group_authorized(gid):
+                    self._json(403, {"error": "group membership token required"})
+                    return
+                result = _MESH_MESSAGES.dispatch_group_message(
+                    gid,
                     _require_str(data, "sender"),
                     _require_str(data, "body"),
                 )
@@ -160,14 +273,25 @@ class _Handler(BaseHTTPRequestHandler):
                     _require_str(data, "destination"),
                     routing_mode=_require_str(data, "routing_mode", default="ml"),
                 )
+            elif path == "/api/network/jammer":
+                result = _SANDBOX.simulate_jammer(
+                    _require_float(data, "x", 350.0),
+                    _require_float(data, "y", 200.0),
+                    radius=_require_float(data, "radius", 195.0),
+                )
             else:
                 self._json(404, {"error": "not found"})
                 return
             self._json(200, result)
+        except socket.timeout:
+            self._json(408, {"error": "request timeout"})
         except (KeyError, ValueError, TypeError, OverflowError, RecursionError, json.JSONDecodeError) as error:
             self._json(400, {"error": str(error)})
 
     def _read_json(self) -> dict[str, object]:
+        content_type = self.headers.get("Content-Type", "").strip().lower()
+        if not content_type.startswith("application/json"):
+            raise ValueError("Content-Type must be application/json")
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError as error:
@@ -188,6 +312,12 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'",
+        )
         self.end_headers()
         self.wfile.write(body)
 
@@ -210,10 +340,15 @@ def _require_float(data: dict[str, object], key: str, default: float) -> float:
 
 
 def main() -> None:
-    """Start the interface on localhost; no network listener is exposed."""
-    address = ("127.0.0.1", 8765)
-    print(f"Stealth Mesh UI: http://{address[0]}:{address[1]}")
-    with ThreadingHTTPServer(address, _Handler) as server:
+    """Start the web and iPhone PWA interface (defaults to 0.0.0.0:8765 for LAN/iPhone access)."""
+    bind_host = os.environ.get("STEALTH_MESH_HOST", "0.0.0.0")
+    bind_port = int(os.environ.get("STEALTH_MESH_PORT", "8765"))
+    lan_ip = detect_lan_ip()
+    print(f"Stealth Mesh Messenger (Local):  http://127.0.0.1:{bind_port}/")
+    print(f"Stealth Mesh Admin Console:      http://127.0.0.1:{bind_port}/admin")
+    if lan_ip != "127.0.0.1":
+        print(f"Stealth Mesh Messenger (iPhone): http://{lan_ip}:{bind_port}/")
+    with _BoundedHTTPServer((bind_host, bind_port), _Handler) as server:
         try:
             server.serve_forever()
         except KeyboardInterrupt:

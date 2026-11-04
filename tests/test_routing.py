@@ -5,6 +5,7 @@ import unittest
 from app.services.status_service import NetworkSandboxService
 from core.network import Network
 from core.node import Node
+from monitoring.jammer_locator import LinkTelemetrySample, locate_interference
 from radio.link_quality import LinkObservation, LinkQualityTracker
 from routing.dijkstra import path_cost, shortest_path
 from routing.failure_detector import FailureDetector
@@ -103,6 +104,9 @@ class DijkstraTests(unittest.TestCase):
         # Turn off N2 -> route immediately fails over to N1 -> N3 -> N5 -> N6
         toggled = sandbox.toggle_node("N2", available=False)
         self.assertEqual(toggled["routing"]["ml_route"], ["N1", "N3", "N5", "N6"])
+        # Single offline node with clean adjacent links is classified as node_offline, not ew_radio_dome
+        self.assertEqual(toggled["jammer"]["interference_type"], "node_offline")
+        self.assertFalse(toggled["jammer"]["detected"])
 
         # Add a new node N7 and simulate packet delivery
         added = sandbox.add_node("N7", 450.0, 260.0, auto_link_radius=300.0)
@@ -110,6 +114,40 @@ class DijkstraTests(unittest.TestCase):
         sim = sandbox.simulate_packet("N1", "N6", routing_mode="ml")
         self.assertIn("simulation", sim)
         self.assertGreater(len(sim["simulation"]["hop_trace"]), 0)
+
+    def test_jammer_locator_distinguishes_natural_obstacle_from_ew_radio_dome(self) -> None:
+        positions = {
+            "a": (100.0, 200.0),
+            "b": (300.0, 100.0),
+            "c": (300.0, 300.0),
+            "d": (500.0, 200.0),
+        }
+        # 1. Single weak-RSSI link -> classified as natural_obstacle
+        natural_samples = [
+            LinkTelemetrySample("a", "b", loss_probability=0.18, rssi_dbm=-108.0, snr_db=2.8),
+            LinkTelemetrySample("b", "d", loss_probability=0.02, rssi_dbm=-71.0, snr_db=9.5),
+            LinkTelemetrySample("a", "c", loss_probability=0.02, rssi_dbm=-72.0, snr_db=9.0),
+            LinkTelemetrySample("c", "d", loss_probability=0.02, rssi_dbm=-72.0, snr_db=9.0),
+        ]
+        nat_report = locate_interference(self.network, positions, natural_samples)
+        self.assertTrue(nat_report.detected)
+        self.assertEqual(nat_report.interference_type, "natural_obstacle")
+        self.assertAlmostEqual(nat_report.estimated_x or 0.0, 200.0, delta=5.0)
+        self.assertAlmostEqual(nat_report.estimated_y or 0.0, 150.0, delta=5.0)
+
+        # 2. Active EW radio dome in sandbox near upper relay N2 (330, 120)
+        sandbox = NetworkSandboxService(seed=42)
+        jammed_state = sandbox.simulate_jammer(335.0, 125.0, radius=190.0)
+        jammer = jammed_state["jammer"]
+        self.assertTrue(jammer["detected"])
+        self.assertEqual(jammer["interference_type"], "ew_radio_dome")
+        self.assertIsNotNone(jammer["estimated_x"])
+        self.assertIsNotNone(jammer["estimated_y"])
+        # Triangulated epicenter lies in the upper region near N2/N4
+        self.assertLess(jammer["estimated_y"], 250.0)
+        self.assertGreaterEqual(jammer["estimated_radius"], 95.0)
+        # Adaptive ML + Failover router diverts via the lower path N1 -> N3 -> N5 -> N6
+        self.assertEqual(jammed_state["routing"]["ml_route"], ["N1", "N3", "N5", "N6"])
 
 
 if __name__ == "__main__":
