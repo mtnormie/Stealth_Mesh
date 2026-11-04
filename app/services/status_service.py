@@ -16,6 +16,11 @@ from ml.features import LinkFeatures
 from ml.predict import MLLinkQualityPredictor
 from ml.train import train_logistic_model
 from monitoring.diagnostics import diagnose_network
+from monitoring.jammer_locator import (
+    LinkTelemetrySample,
+    StealthLocationRegistry,
+    locate_interference,
+)
 from routing.dijkstra import path_cost, shortest_path
 from routing.failure_detector import FailureDetector
 from routing.route_manager import RouteManager
@@ -66,6 +71,7 @@ class NetworkSandboxService:
 
         self._network = Network()
         self._positions: dict[str, tuple[float, float]] = {}
+        self._location_registry = StealthLocationRegistry()
         self._link_profiles: dict[tuple[str, str], LinkProfile] = {}
         self._failure_detector = FailureDetector(failure_threshold=2)
         self._source = "N1"
@@ -81,6 +87,7 @@ class NetworkSandboxService:
         with self._lock:
             self._network = Network()
             self._positions.clear()
+            self._location_registry.reset_all()
             self._link_profiles.clear()
             self._failure_detector = FailureDetector(failure_threshold=2)
 
@@ -94,7 +101,8 @@ class NetworkSandboxService:
             ]
             for node_id, x, y, available in default_nodes:
                 self._network.add_node(Node(node_id, available=available))
-                self._positions[node_id] = (x, y)
+                beacon = self._location_registry.create_one_time_beacon(node_id, x, y)
+                self._positions[node_id] = self._location_registry.register_beacon(beacon)
 
             # Upper path N1 -> N2 -> N4 -> N6 (low nominal cost, healthy)
             self._set_link_unlocked("N1", "N2", cost=1.0, loss_probability=0.02, latency_ms=40.0, rssi_dbm=-70.0, snr_db=10.0)
@@ -120,6 +128,7 @@ class NetworkSandboxService:
         with self._lock:
             self._network = Network()
             self._positions.clear()
+            self._location_registry.reset_all()
             self._link_profiles.clear()
             self._failure_detector = FailureDetector(failure_threshold=2)
             self._source = ""
@@ -152,7 +161,8 @@ class NetworkSandboxService:
                     raise ValueError(f"node already exists: {clean_id}")
 
             self._network.add_node(Node(clean_id, available=True))
-            self._positions[clean_id] = (px, py)
+            beacon = self._location_registry.create_one_time_beacon(clean_id, px, py)
+            self._positions[clean_id] = self._location_registry.register_beacon(beacon)
 
             if not isfinite(auto_link_radius) or auto_link_radius < 0.0:
                 raise ValueError("auto_link_radius must be non-negative")
@@ -207,7 +217,62 @@ class NetworkSandboxService:
                 raise ValueError(f"unknown node: {clean_id}")
             px = _validate_coord(x, "x")
             py = _validate_coord(y, "y")
-            self._positions[clean_id] = (px, py)
+            beacon = self._location_registry.create_one_time_beacon(clean_id, px, py)
+            self._positions[clean_id] = self._location_registry.register_beacon(
+                beacon, allow_admin_relock=True
+            )
+            return self._snapshot_unlocked()
+
+    def simulate_jammer(
+        self,
+        x: float,
+        y: float,
+        *,
+        radius: float = 195.0,
+    ) -> dict[str, object]:
+        """Simulate an active EW radio dome at (x, y) and trigger autonomous triangulation."""
+        with self._lock:
+            jx = _validate_coord(x, "x")
+            jy = _validate_coord(y, "y")
+            if isinstance(radius, bool) or not isinstance(radius, (int, float)) or not isfinite(radius):
+                raise ValueError("radius must be a finite number")
+            eff_radius = max(70.0, min(420.0, float(radius)))
+
+            # 1. Nodes inside the inner suppression zone go offline / suppressed
+            for node_id, node in sorted(self._network.nodes.items()):
+                nx, ny = self._positions.get(node_id, (100.0, 100.0))
+                dist = hypot(nx - jx, ny - jy)
+                if dist <= eff_radius * 0.62:
+                    node.available = False
+                    self._failure_detector.mark_node_failed(node_id)
+
+            # 2. Links passing through or near the EW dome suffer high noise floor & SNR collapse
+            for (u, v), prof in list(self._link_profiles.items()):
+                if u not in self._positions or v not in self._positions:
+                    continue
+                x1, y1 = self._positions[u]
+                x2, y2 = self._positions[v]
+                mid_x, mid_y = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+                d_mid = hypot(mid_x - jx, mid_y - jy)
+                d_u = hypot(x1 - jx, y1 - jy)
+                d_v = hypot(x2 - jx, y2 - jy)
+                closest = min(d_mid, d_u * 0.9, d_v * 0.9)
+
+                if closest <= eff_radius * 1.18:
+                    intensity = max(0.15, min(1.0, 1.0 - (closest / (eff_radius * 1.25))))
+                    # Jammer injects broadband RF energy: elevated RSSI noise floor + negative SNR
+                    jam_loss = round(min(0.92, max(prof.loss_probability, 0.32 + intensity * 0.56)), 3)
+                    jam_rssi = round(max(-82.0, min(-62.0, -82.0 + intensity * 18.0)), 1)
+                    jam_snr = round(max(-16.0, min(1.0, 2.0 - intensity * 15.0)), 1)
+                    jam_lat = round(min(900.0, prof.latency_ms + intensity * 180.0), 1)
+                    self._link_profiles[(u, v)] = LinkProfile(
+                        cost=prof.cost,
+                        loss_probability=jam_loss,
+                        latency_ms=jam_lat,
+                        rssi_dbm=jam_rssi,
+                        snr_db=jam_snr,
+                    )
+
             return self._snapshot_unlocked()
 
     def set_link(
@@ -487,12 +552,15 @@ class NetworkSandboxService:
                 "available": node.available,
                 "x": self._positions.get(node_id, (100.0, 100.0))[0],
                 "y": self._positions.get(node_id, (100.0, 100.0))[1],
+                "beacon_locked": self._location_registry.is_locked(node_id),
             }
             for node_id, node in sorted(self._network.nodes.items())
         ]
         links_list = []
+        telemetry_samples: list[LinkTelemetrySample] = []
         for (u, v), prof in sorted(self._link_profiles.items()):
             ml_prob = round(self._predict_link_quality_unlocked(u, v), 3)
+            is_failed = self._failure_detector.is_link_failed(u, v)
             links_list.append(
                 {
                     "source": u,
@@ -503,9 +571,26 @@ class NetworkSandboxService:
                     "rssi_dbm": prof.rssi_dbm,
                     "snr_db": prof.snr_db,
                     "ml_probability": ml_prob,
-                    "failed": self._failure_detector.is_link_failed(u, v),
+                    "failed": is_failed,
                 }
             )
+            telemetry_samples.append(
+                LinkTelemetrySample(
+                    first=u,
+                    second=v,
+                    loss_probability=prof.loss_probability,
+                    rssi_dbm=prof.rssi_dbm,
+                    snr_db=prof.snr_db,
+                    failed=is_failed,
+                )
+            )
+
+        jammer_report = locate_interference(
+            self._network,
+            self._location_registry.positions(),
+            telemetry_samples,
+            failure_detector=self._failure_detector,
+        )
 
         routing = self._compute_routes_unlocked(self._source, self._destination)
         return {
@@ -517,6 +602,18 @@ class NetworkSandboxService:
                 "unavailable_nodes": list(diag.unavailable_nodes),
                 "isolated_nodes": list(diag.isolated_nodes),
                 "active_link_count": diag.active_link_count,
+            },
+            "jammer": {
+                "interference_type": jammer_report.interference_type,
+                "detected": jammer_report.detected,
+                "estimated_x": jammer_report.estimated_x,
+                "estimated_y": jammer_report.estimated_y,
+                "estimated_radius": jammer_report.estimated_radius,
+                "confidence": jammer_report.confidence,
+                "affected_nodes": list(jammer_report.affected_nodes),
+                "degraded_links": jammer_report.degraded_links,
+                "summary_uk": jammer_report.summary_uk,
+                "summary_en": jammer_report.summary_en,
             },
             "routing": routing,
         }

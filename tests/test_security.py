@@ -4,6 +4,10 @@ import unittest
 
 from app.main import _require_float, _require_str
 from app.services.group_service import GroupService
+from app.services.message_service import MeshMessageService
+from app.services.status_service import NetworkSandboxService
+from app.ui.settings_view import PWA_MANIFEST_JSON, render_qr_svg
+from monitoring.jammer_locator import StealthLocationRegistry
 from security.authentication import MessageAuthenticator, SignedEnvelope
 from security.encryption import EncryptedPayload, decrypt, encrypt
 from security.integrity import ReplayWindow, compute_hmac, verify_hmac
@@ -151,15 +155,22 @@ class GroupServiceTests(unittest.TestCase):
         self.assertEqual(sent["sender"], "Олена")
         self.assertEqual(sent["body"], "Привіт, перевірка зв'язку!")
 
-        # Rotate group key and send a second message; both v1 and v2 messages remain readable
-        rotated = service.rotate_group_key(group["group_id"])
-        self.assertEqual(rotated["key_version"], 2)
+        # Rotate group key 10 times (exceeding max_retained_key_versions=8) and verify messages stay readable
+        for expected_ver in range(2, 12):
+            rotated = service.rotate_group_key(group["group_id"])
+            self.assertEqual(rotated["key_version"], expected_ver)
         service.send_message(group["group_id"], "Богдан", "Ключ оновлено!")
 
         messages = service.list_messages(group["group_id"])
         self.assertEqual(len(messages), 2)
         self.assertEqual(messages[0]["body"], "Привіт, перевірка зв'язку!")
         self.assertEqual(messages[1]["body"], "Ключ оновлено!")
+        # Verify signed_envelope of message[0] was also re-sealed and parses cleanly
+        wire_bytes_0 = service.get_encrypted_wire_bytes(group["group_id"], messages[0]["id"])
+        self.assertIn(b'"key_version":', wire_bytes_0)
+        self.assertTrue(service.verify_member_token(group["group_id"], group["member_token"]))
+        self.assertTrue(service.verify_member_token(group["group_id"], joined["member_token"]))
+        self.assertFalse(service.verify_member_token(group["group_id"], "invalid-token"))
 
     def test_service_validation_and_bounds(self) -> None:
         service = GroupService(max_groups=1, max_messages_per_group=2, max_invitations=1)
@@ -196,6 +207,70 @@ class GroupServiceTests(unittest.TestCase):
             _require_str({"name": 123}, "name")
         with self.assertRaises(TypeError):
             _require_float({"x": True}, "x", 0.0)
+
+    def test_pwa_qr_svg_and_mesh_message_service_dispatch(self) -> None:
+        svg = render_qr_svg("http://192.168.4.1:8765/?join=test-token-12345")
+        self.assertIn("<svg", svg)
+        self.assertIn("<rect", svg)
+        self.assertIn('"standalone"', PWA_MANIFEST_JSON)
+
+        groups = GroupService()
+        sandbox = NetworkSandboxService(seed=42)
+        bridge = MeshMessageService(groups, sandbox)
+        grp = groups.create_group("Field Team")
+        dispatched = bridge.dispatch_group_message(
+            grp["group_id"],
+            "Alpha",
+            "Координати точки збору",
+        )
+        self.assertEqual(dispatched["body"], "Координати точки збору")
+        self.assertGreater(int(dispatched["wire_bytes"]), 20)  # type: ignore[arg-type]
+        self.assertIn("mesh_delivery", dispatched)
+        wire_payload = groups.get_encrypted_wire_bytes(grp["group_id"], str(dispatched["id"]))
+        self.assertNotIn("Координати точки збору".encode("utf-8"), wire_payload)
+
+        # Also test a large 3500-char UTF-8 message to ensure no wire truncation occurs
+        long_text = "Увага! " * 500
+        long_dispatched = bridge.dispatch_group_message(grp["group_id"], "Alpha", long_text)
+        long_wire = groups.get_encrypted_wire_bytes(grp["group_id"], str(long_dispatched["id"]))
+        parsed_env = SignedEnvelope.from_dict(__import__("json").loads(long_wire.decode("utf-8")))
+        self.assertEqual(parsed_env.sender, "Alpha")
+
+    def test_stealth_location_registry_one_time_encrypted_beacon_and_lock(self) -> None:
+        registry = StealthLocationRegistry()
+        beacon1 = registry.create_one_time_beacon("N1", 330.0, 120.0)
+        beacon2 = registry.create_one_time_beacon("N2", 330.0, 120.0)
+
+        # Random blinding salt + nonce ensure identical coordinates produce distinct ciphertexts
+        self.assertNotEqual(beacon1.payload.ciphertext, beacon2.payload.ciphertext)
+        # Per-node keys are isolated
+        self.assertNotEqual(registry.derive_node_beacon_key("N1"), registry.derive_node_beacon_key("N2"))
+
+        # Compromising N1's key cannot forge a valid beacon for N3
+        forged_n3 = registry.create_one_time_beacon(
+            "N3", 500.0, 500.0, node_key=registry.derive_node_beacon_key("N1")
+        )
+        with self.assertRaises(ValueError):
+            registry.register_beacon(forged_n3)
+
+        coords = registry.register_beacon(beacon1)
+        self.assertEqual(coords, (330.0, 120.0))
+        self.assertTrue(registry.is_locked("N1"))
+
+        # Second attempt to overwrite a locked node's location must be rejected
+        later_beacon = registry.create_one_time_beacon("N1", 900.0, 900.0)
+        with self.assertRaises(ValueError):
+            registry.register_beacon(later_beacon)
+
+        # Admin relock explicitly allowed when moving node in sandbox
+        updated = registry.register_beacon(later_beacon, allow_admin_relock=True)
+        self.assertEqual(updated, (900.0, 900.0))
+
+        # After reset_all(), sequence=1 from N1 is accepted cleanly again
+        registry.reset_all()
+        fresh_beacon = registry.create_one_time_beacon("N1", 110.0, 260.0)
+        self.assertEqual(fresh_beacon.sequence, 1)
+        self.assertEqual(registry.register_beacon(fresh_beacon), (110.0, 260.0))
 
 
 if __name__ == "__main__":

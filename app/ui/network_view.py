@@ -48,10 +48,10 @@ canvas{display:block;width:100%;height:540px;cursor:pointer}
 <body>
 <header>
   <div class="brand">
-    <h1>Stealth Mesh</h1>
+    <h1 data-en="Stealth Mesh · Admin Console">Stealth Mesh · Адмін-модуль</h1>
     <nav>
-      <a href="/" data-en="Encrypted Group Chat">Груповий чат (AES-256-GCM)</a>
-      <a href="/network" class="active" data-en="Routing Visualizer">Візуалізатор маршрутизації</a>
+      <a href="/admin" class="active" data-en="Nodes & Routing Control">Керування вузлами та маршрутизацією</a>
+      <a href="/" data-en="Open User Messenger →">Відкрити клієнтський месенджер →</a>
     </nav>
   </div>
   <button id="lang-btn">English</button>
@@ -63,6 +63,7 @@ canvas{display:block;width:100%;height:540px;cursor:pointer}
       <button class="mode-btn active" id="mode-toggle" data-en="Mode: Toggle Node ON/OFF (Click) & Drag">Режим: Увімк/Вимк вузол (клік) або перетягування</button>
       <button class="mode-btn" id="mode-add-node" data-en="Mode: Add Node (Click Canvas)">+ Додати вузол (клік по полю)</button>
       <button class="mode-btn" id="mode-link" data-en="Mode: Connect / Degrade Link (Click 2 Nodes)">З’єднати / Погіршити лінк (2 вузли)</button>
+      <button class="mode-btn" id="mode-jammer" data-en="Mode: Simulate EW Dome (Click Canvas)">Радіокупол РЕБ (клік по полю)</button>
       <button id="btn-reset" data-en="Reset 6-Node Mesh">Скинути (6 вузлів)</button>
       <button id="btn-clear" class="danger" data-en="Clear All">Очистити поле</button>
     </div>
@@ -72,11 +73,11 @@ canvas{display:block;width:100%;height:540px;cursor:pointer}
     </div>
 
     <div class="legend">
-      <span><i class="dot" style="background:#22c55e"></i><span data-en="Node ON (Available)">Вузол УВІМК (активний)</span></span>
-      <span><i class="dot" style="background:#ef4444"></i><span data-en="Node OFF (Failed/Offline)">Вузол ВИМК (відмова)</span></span>
+      <span><i class="dot" style="background:#22c55e"></i><span data-en="Node ON (Locked Beacon 🔒)">Вузол УВІМК (маяк 🔒)</span></span>
+      <span><i class="dot" style="background:#ef4444"></i><span data-en="Node OFF (Suppressed/Failed)">Вузол ВИМК (подавлений/відмова)</span></span>
       <span><i class="dot" style="background:#7de2c3"></i><span data-en="Active ML / Failover Route">Активний маршрут (ML + Failover)</span></span>
       <span><i class="dot" style="background:#fbbf24"></i><span data-en="Static Dijkstra Route">Статичний маршрут Дейкстри</span></span>
-      <span><i class="dot" style="background:#f97316"></i><span data-en="Noisy RF Link (High Loss)">Зашумлений радіоканал (втрати)</span></span>
+      <span><i class="dot" style="background:#dc2626"></i><span data-en="Triangulated EW Radio Dome">Пеленгований радіокупол РЕБ</span></span>
     </div>
     <p class="hint" id="mode-hint" data-en="Tip: Click any node to turn it ON or OFF and watch instant route failover, or drag nodes to move them.">Підказка: клікни на будь-який вузол, щоб ВИМКНУТИ або УВІМКНУТИ його і побачити миттєвий обхід маршруту, або перетягни вузол мишкою.</p>
   </section>
@@ -126,8 +127,23 @@ canvas{display:block;width:100%;height:540px;cursor:pointer}
       <div class="route-path static" id="rt-static">—</div>
     </div>
 
+    <div class="route-box" id="ew-box" style="border-color:#3a5266">
+      <div class="hint" style="font-weight:700;color:#7de2c3;margin-bottom:4px" data-en="Radio Reconnaissance & EW Triangulation">Радіорозвідка та пеленгація РЕБ</div>
+      <div id="ew-summary" style="font-size:.86rem;line-height:1.4;color:#d6e4ec">—</div>
+      <div class="hint" id="ew-beacon-info" style="margin-top:6px;font-size:.78rem;color:#93c5fd" data-en="One-time deployment location beacons (AES-256-GCM + Blinding): LOCKED 🔒">Одноразові маяки локації (AES-256-GCM + блайндинг): ЗАБЛОКОВАНО 🔒</div>
+    </div>
+
     <h3 style="margin:12px 0 6px;font-size:.95rem" data-en="Live Hop-by-Hop Transmission Log">Журнал передачі пакета по хопах</h3>
     <div id="hop-log"><div class="hint" data-en="Click 'Send Test Packet' or toggle nodes...">Натисніть «Надіслати пакет» або перемикайте вузли...</div></div>
+
+    <div class="route-box" style="margin-top:14px">
+      <div class="hint" style="margin-bottom:6px;font-weight:600;color:#7de2c3" data-en="Security Admin: Group Key Rotation">Адміністрування безпеки: Ротація ключів груп</div>
+      <div style="display:flex;gap:6px">
+        <select id="admin-group-sel" style="flex:1"></select>
+        <button id="btn-admin-rotate" class="primary" type="button" data-en="Rotate Key">Оновити ключ</button>
+      </div>
+      <div class="hint" id="admin-rotate-status"></div>
+    </div>
   </aside>
 </div>
 
@@ -145,7 +161,7 @@ document.getElementById('lang-btn').onclick = () => {
   lang = lang === 'uk' ? 'en' : 'uk';
   localStorage.setItem('stealth-mesh-language', lang);
   applyLang();
-  renderCanvas();
+  updateStats(state);
 };
 applyLang();
 
@@ -176,12 +192,14 @@ function setMode(newMode) {
   if (newMode === 'toggle') document.getElementById('mode-toggle').classList.add('active');
   if (newMode === 'add-node') document.getElementById('mode-add-node').classList.add('active');
   if (newMode === 'link') document.getElementById('mode-link').classList.add('active');
+  if (newMode === 'jammer') document.getElementById('mode-jammer').classList.add('active');
   renderCanvas();
 }
 
 document.getElementById('mode-toggle').onclick = () => setMode('toggle');
 document.getElementById('mode-add-node').onclick = () => setMode('add-node');
 document.getElementById('mode-link').onclick = () => setMode('link');
+document.getElementById('mode-jammer').onclick = () => setMode('jammer');
 
 function syncSelectors() {
   const srcSel = document.getElementById('sel-src');
@@ -212,7 +230,28 @@ function updateStats(s) {
 
   document.getElementById('rt-ml').textContent = r.ml_route ? `${r.ml_route.join(' → ')} (cost ${r.ml_cost}, ${r.ml_compute_us} µs)` : (lang === 'en' ? 'No active path' : 'Маршрут недоступний');
   document.getElementById('rt-static').textContent = r.static_route ? `${r.static_route.join(' → ')} (cost ${r.static_cost}, ${r.static_compute_us} µs)` : (lang === 'en' ? 'No path' : 'Немає шляху');
+
+  const j = s.jammer || {};
+  const ewBox = document.getElementById('ew-box');
+  const ewSum = document.getElementById('ew-summary');
+  if (ewSum && ewBox) {
+    ewSum.textContent = lang === 'en' ? (j.summary_en || 'Spectrum clean.') : (j.summary_uk || 'Ефір чистий.');
+    if (j.interference_type === 'ew_radio_dome') {
+      ewBox.style.borderColor = '#ef4444';
+      ewSum.style.color = '#fca5a5';
+    } else if (j.interference_type === 'natural_obstacle') {
+      ewBox.style.borderColor = '#f59e0b';
+      ewSum.style.color = '#fde68a';
+    } else {
+      ewBox.style.borderColor = '#3a5266';
+      ewSum.style.color = '#d6e4ec';
+    }
+  }
   renderCanvas();
+}
+
+function esc(val) {
+  return String(val ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 function logEvent(html) {
@@ -276,8 +315,8 @@ window.addEventListener('mouseup', async () => {
     const statusTxt = updated && updated.available
       ? `<span class="ok">ON</span>`
       : `<span class="fail">OFF</span>`;
-    const newRoute = s.routing.ml_route ? s.routing.ml_route.join(' → ') : 'NONE';
-    logEvent(`[Node ${node.node_id} → ${statusTxt}] Recalculated in <b>${s.routing.ml_compute_us} µs</b>: ${newRoute}`);
+    const newRoute = s.routing.ml_route ? esc(s.routing.ml_route.join(' → ')) : 'NONE';
+    logEvent(`[Node ${esc(node.node_id)} → ${statusTxt}] Recalculated in <b>${esc(s.routing.ml_compute_us)} µs</b>: ${newRoute}`);
   }
 });
 
@@ -289,7 +328,13 @@ canvas.addEventListener('click', async e => {
     const s = await api('/api/network/node/add', { x: pt.x, y: pt.y, auto_link_radius: 290 });
     updateStats(s);
     const added = s.nodes[s.nodes.length - 1];
-    logEvent(`<span class="ok">[+ Node ${added.node_id}]</span> Added at (${Math.round(pt.x)}, ${Math.round(pt.y)}) — route computed in <b>${s.routing.ml_compute_us} µs</b>`);
+    logEvent(`<span class="ok">[+ Node ${esc(added.node_id)} 🔒]</span> Added at (${Math.round(pt.x)}, ${Math.round(pt.y)}) — one-time encrypted beacon registered, route computed in <b>${esc(s.routing.ml_compute_us)} µs</b>`);
+  } else if (mode === 'jammer') {
+    const s = await api('/api/network/jammer', { x: pt.x, y: pt.y, radius: 195 });
+    updateStats(s);
+    const j = s.jammer || {};
+    const routeTxt = esc((s.routing.ml_route || []).join(' → ') || 'NONE');
+    logEvent(`<span class="fail">[EW DOME @ (${Math.round(pt.x)}, ${Math.round(pt.y)})]</span> Triangulated epicenter: <b>(${esc(j.estimated_x)}, ${esc(j.estimated_y)}) R≈${esc(j.estimated_radius)}m</b> — rerouted to: <b>${routeTxt}</b>`);
   } else if (mode === 'link' && hit) {
     if (!selectedFirstNode) {
       selectedFirstNode = hit.node_id;
@@ -304,15 +349,15 @@ canvas.addEventListener('click', async e => {
       if (!existing) {
         const s = await api('/api/network/link/set', { first: u, second: v, cost: 1.0, loss_probability: 0.02, latency_ms: 42, rssi_dbm: -71, snr_db: 9.5 });
         updateStats(s);
-        logEvent(`<span class="ok">[Link ${u} ↔ ${v}]</span> Connected (Healthy, loss 2%)`);
+        logEvent(`<span class="ok">[Link ${esc(u)} ↔ ${esc(v)}]</span> Connected (Healthy, loss 2%)`);
       } else if (existing.loss_probability < 0.25) {
         const s = await api('/api/network/link/set', { first: u, second: v, cost: existing.cost, loss_probability: 0.60, latency_ms: 190, rssi_dbm: -118, snr_db: -11 });
         updateStats(s);
-        logEvent(`<span class="warn">[Link ${u} ↔ ${v}]</span> Degraded RF (loss 60%, RSSI -118 dBm) — ML rerouted to: <b>${(s.routing.ml_route || []).join(' → ')}</b>`);
+        logEvent(`<span class="warn">[Link ${esc(u)} ↔ ${esc(v)}]</span> Degraded RF (loss 60%, RSSI -118 dBm) — ML rerouted to: <b>${esc((s.routing.ml_route || []).join(' → '))}</b>`);
       } else {
         const s = await api('/api/network/link/remove', { first: u, second: v });
         updateStats(s);
-        logEvent(`<span class="fail">[Link ${u} ↔ ${v}]</span> Removed`);
+        logEvent(`<span class="fail">[Link ${esc(u)} ↔ ${esc(v)}]</span> Removed`);
       }
     }
   }
@@ -350,7 +395,7 @@ document.getElementById('btn-send').onclick = async () => {
   updateStats(s);
   const sim = s.simulation;
   if (!sim || !sim.hop_trace || sim.hop_trace.length === 0) {
-    logEvent(`<span class="fail">[Send ${src} → ${dst}]</span> Failed: no active route available.`);
+    logEvent(`<span class="fail">[Send ${esc(src)} → ${esc(dst)}]</span> Failed: no active route available.`);
     return;
   }
   animateHops(sim);
@@ -366,16 +411,16 @@ function animateHops(sim) {
       const badge = sim.status === 'delivered'
         ? `<span class="ok">DELIVERED</span>`
         : `<span class="fail">FAILED</span>`;
-      logEvent(`<b>[Result ${ badge }]</b> Route: ${(sim.selected_route || []).join(' → ')} | Attempts: ${sim.attempts} | Total latency: ${sim.total_latency_ms} ms`);
+      logEvent(`<b>[Result ${ badge }]</b> Route: ${esc((sim.selected_route || []).join(' → '))} | Attempts: ${esc(sim.attempts)} | Total latency: ${esc(sim.total_latency_ms)} ms`);
       return;
     }
     const hop = sim.hop_trace[idx++];
     const u = nodeMap[hop.from], v = nodeMap[hop.to];
     if (!u || !v) { nextHop(); return; }
     const hopBadge = hop.delivered
-      ? `<span class="ok">OK (${hop.latency_ms} ms, RSSI ${hop.rssi_dbm} dBm)</span>`
-      : `<span class="fail">FAIL: ${hop.reason}</span>`;
-    logEvent(`Hop ${idx}: <b>${hop.from} → ${hop.to}</b> ${hopBadge}`);
+      ? `<span class="ok">OK (${esc(hop.latency_ms)} ms, RSSI ${esc(hop.rssi_dbm)} dBm)</span>`
+      : `<span class="fail">FAIL: ${esc(hop.reason)}</span>`;
+    logEvent(`Hop ${idx}: <b>${esc(hop.from)} → ${esc(hop.to)}</b> ${hopBadge}`);
 
     const duration = 380;
     const start = performance.now();
@@ -408,6 +453,47 @@ function renderCanvas() {
   const nodeMap = Object.fromEntries(state.nodes.map(n => [n.node_id, n]));
   const mlRoute = (state.routing && state.routing.ml_route) || [];
   const staticRoute = (state.routing && state.routing.static_route) || [];
+
+  // Draw triangulated EW Radio Dome / Natural Obstacle if detected
+  const jam = state.jammer;
+  if (jam && jam.detected && jam.estimated_x !== null && jam.estimated_y !== null) {
+    const isEw = jam.interference_type === 'ew_radio_dome';
+    const jx = jam.estimated_x, jy = jam.estimated_y, jr = jam.estimated_radius || 120;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(jx, jy, jr, 0, Math.PI * 2);
+    ctx.fillStyle = isEw ? 'rgba(239, 68, 68, 0.16)' : 'rgba(245, 158, 11, 0.13)';
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([8, 6]);
+    ctx.strokeStyle = isEw ? '#ef4444' : '#f59e0b';
+    ctx.stroke();
+
+    // Crosshair at triangulated epicenter
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(jx - 14, jy);
+    ctx.lineTo(jx + 14, jy);
+    ctx.moveTo(jx, jy - 14);
+    ctx.lineTo(jx, jy + 14);
+    ctx.strokeStyle = isEw ? '#f87171' : '#fbbf24';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Label pill
+    const badgeTxt = isEw
+      ? (lang === 'en' ? `EW DOME (${Math.round(jx)}, ${Math.round(jy)}) R≈${Math.round(jr)}m` : `РАДІОКУПОЛ РЕБ (${Math.round(jx)}, ${Math.round(jy)}) R≈${Math.round(jr)}м`)
+      : (lang === 'en' ? `NATURAL OBSTACLE (${Math.round(jx)}, ${Math.round(jy)})` : `ПРИРОДНА ПЕРЕШКОДА (${Math.round(jx)}, ${Math.round(jy)})`);
+    ctx.font = 'bold 11px ui-monospace, monospace';
+    const tw = ctx.measureText(badgeTxt).width + 16;
+    ctx.fillStyle = isEw ? 'rgba(127, 29, 29, 0.92)' : 'rgba(120, 53, 15, 0.92)';
+    ctx.fillRect(jx - tw / 2, jy - 34, tw, 20);
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(badgeTxt, jx, jy - 24);
+    ctx.restore();
+  }
 
   // Draw links
   for (const link of state.links) {
@@ -495,6 +581,10 @@ function renderCanvas() {
     ctx.font = '10px system-ui, sans-serif';
     ctx.fillStyle = n.available ? '#4ade80' : '#f87171';
     ctx.fillText(n.available ? (isSrc ? 'SRC' : (isDst ? 'DST' : 'ON')) : 'OFF', n.x, n.y + 11);
+    if (n.beacon_locked) {
+      ctx.font = '11px system-ui, sans-serif';
+      ctx.fillText('🔒', n.x + 20, n.y - 18);
+    }
     ctx.restore();
   }
 
@@ -512,6 +602,30 @@ function renderCanvas() {
 }
 
 api('/api/network/state').then(updateStats).catch(err => console.error(err));
+async function loadAdminGroups() {
+  try {
+    const groups = await api('/api/groups');
+    const sel = document.getElementById('admin-group-sel');
+    sel.replaceChildren();
+    if (!groups.length) {
+      sel.add(new Option(lang === 'en' ? 'No groups created' : 'Немає створених груп', ''));
+      return;
+    }
+    for (const g of groups) sel.add(new Option(g.name, g.group_id));
+  } catch (e) {}
+}
+document.getElementById('btn-admin-rotate').onclick = async () => {
+  const gid = document.getElementById('admin-group-sel').value;
+  if (!gid) return;
+  try {
+    const res = await api('/api/groups/rotate', { group_id: gid });
+    document.getElementById('admin-rotate-status').textContent =
+      (lang === 'en' ? 'Active key version rotated to v' : 'Ключ групи оновлено до версії v') + res.key_version;
+  } catch (e) {
+    document.getElementById('admin-rotate-status').textContent = e.message;
+  }
+};
+loadAdminGroups();
 </script>
 </body>
 </html>
