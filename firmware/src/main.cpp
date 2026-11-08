@@ -172,7 +172,7 @@ async function poll(){
     document.getElementById('status').innerHTML=lang==='uk'
       ?`<div><b>ID вузла:</b> ${esc(s.node_id)}</div>`+
        `<div style="margin-top:6px"><b>Радіомодуль SX1276:</b> <span class="${s.radio_ok?'ok':'err'}">${s.radio_ok?'Активний ('+esc(s.chip_version)+')':'Помилка SPI ('+esc(s.chip_version)+')'}</span></div>`+
-       `<div style="margin-top:6px"><b>Апаратний FHSS (RegHopPeriod=${esc(s.hop_period)}):</b> <span class="ok">УВІМКНЕНО</span> · <b>Пін DIO2 (GPIO1):</b> <span class="${s.dio2_ok?'ok':'err'}">${s.dio2_ok?'ПІДТВЕРДЖЕНО':'ОЧІКУЄ TX'}</span></div>`+
+       `<div style="margin-top:6px"><b>Апаратний FHSS (16 каналів, 856.3–885.7 МГц, RegHopPeriod=${esc(s.hop_period)}):</b> <span class="ok">УВІМКНЕНО</span> · <b>Пін DIO2 (GPIO1):</b> <span class="${s.dio2_ok?'ok':'err'}">${s.dio2_ok?'ПІДТВЕРДЖЕНО':'ОЧІКУЄ TX'}</span></div>`+
        `<div style="margin-top:6px"><b>Стрибків частоти за останній пакет:</b> <b>${esc(s.last_pkt_hops)}</b> (Всього: <b>${esc(s.total_hops)}</b>)</div>`+
        `<div style="margin-top:6px"><b>Траса частот пакета (МГц):</b> <code style="color:#7de2c3">${esc(s.hop_trace)} MHz</code></div>`+
        `<div style="margin-top:6px"><b>Шифрування ефіру:</b> <span class="ok">AES-256-GCM + AAD</span></div>`+
@@ -180,7 +180,7 @@ async function poll(){
        `<div style="margin-top:6px"><b>Останній RSSI / SNR:</b> ${esc(s.last_rssi)} dBm / ${esc(s.last_snr)} dB</div>`
       :`<div><b>Node ID:</b> ${esc(s.node_id)}</div>`+
        `<div style="margin-top:6px"><b>SX1276 Radio:</b> <span class="${s.radio_ok?'ok':'err'}">${s.radio_ok?'Active ('+esc(s.chip_version)+')':'SPI Error ('+esc(s.chip_version)+')'}</span></div>`+
-       `<div style="margin-top:6px"><b>Hardware FHSS (RegHopPeriod=${esc(s.hop_period)}):</b> <span class="ok">ENABLED</span> · <b>DIO2 Pin (GPIO1):</b> <span class="${s.dio2_ok?'ok':'err'}">${s.dio2_ok?'VERIFIED':'WAITING TX'}</span></div>`+
+       `<div style="margin-top:6px"><b>Wideband FHSS (16 ch, 856.3–885.7 MHz, RegHopPeriod=${esc(s.hop_period)}):</b> <span class="ok">ENABLED</span> · <b>DIO2 Pin (GPIO1):</b> <span class="${s.dio2_ok?'ok':'err'}">${s.dio2_ok?'VERIFIED':'WAITING TX'}</span></div>`+
        `<div style="margin-top:6px"><b>Frequency Hops (Last Packet):</b> <b>${esc(s.last_pkt_hops)}</b> (Total: <b>${esc(s.total_hops)}</b>)</div>`+
        `<div style="margin-top:6px"><b>Packet Hop Trace (MHz):</b> <code style="color:#7de2c3">${esc(s.hop_trace)} MHz</code></div>`+
        `<div style="margin-top:6px"><b>Over-the-Air Crypto:</b> <span class="ok">AES-256-GCM + AAD</span></div>`+
@@ -233,7 +233,7 @@ void setup() {
     String ap_pass = g_prefs.getString("ap_pass", "stealthmesh868");
     g_prefs.end();
 
-    g_radio.setFhssSeed(g_mesh_key[0] & 0x07U);
+    g_radio.setFhssSeed(g_mesh_key[0] & 0x0FU);
     g_radio_ok = g_radio.begin(true, 5);
     if (g_radio_ok) {
         g_radio.startReceive();
@@ -338,7 +338,7 @@ void setup() {
             if (secret.length() >= 8 && secret.length() <= 128) {
                 mbedtls_sha256((const unsigned char*)secret.c_str(), secret.length(), g_mesh_key, 0);
                 g_prefs.putBytes("mkey", g_mesh_key, 32);
-                g_radio.setFhssSeed(g_mesh_key[0] & 0x07U);
+                g_radio.setFhssSeed(g_mesh_key[0] & 0x0FU);
                 updated = true;
             }
         }

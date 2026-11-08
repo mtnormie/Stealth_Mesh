@@ -57,7 +57,7 @@ public:
     bool     dio2PinVerified() const { return dio2_pin_verified_; }
     uint32_t currentFreqHz() const { return current_freq_hz_; }
     const char* lastHopTrace() const { return last_hop_trace_; }
-    void setFhssSeed(uint8_t seed) { fhss_seed_ = seed & 0x07U; }
+    void setFhssSeed(uint8_t seed) { fhss_seed_ = seed & 0x0FU; }
 
 private:
     uint32_t total_fhss_hops_   = 0;
