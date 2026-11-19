@@ -20,9 +20,21 @@ namespace StealthPins {
 // Binary Wire Frame Constants (matches core/packet.py)
 constexpr uint8_t  SMSH_MAGIC[4]       = {'S', 'M', 'S', 'H'};
 constexpr uint8_t  SMSH_VERSION        = 1;
+constexpr uint8_t  SMSH_DEFAULT_HOPS   = 6;
 constexpr size_t   SMSH_MAX_FRAME_SIZE = 250; // Fits within SX1276 256-byte FIFO
 constexpr size_t   SMSH_MAX_ID_LEN     = 36;
 constexpr size_t   SMSH_MAX_PAYLOAD    = 160;
+constexpr size_t   SMSH_MAX_NEIGHBORS  = 16;
+
+struct NeighborEntry {
+    bool     active;
+    char     node_id[SMSH_MAX_ID_LEN + 1];
+    int16_t  last_rssi_dbm;
+    float    last_snr_db;
+    uint8_t  hops;
+    uint32_t rx_packets;
+    uint32_t last_seen_ms;
+};
 
 struct MeshFrame {
     uint8_t  version;
@@ -57,7 +69,7 @@ public:
     bool     dio2PinVerified() const { return dio2_pin_verified_; }
     uint32_t currentFreqHz() const { return current_freq_hz_; }
     const char* lastHopTrace() const { return last_hop_trace_; }
-    void setFhssSeed(uint8_t seed) { fhss_seed_ = seed & 0x07U; }
+    void setFhssSeed(uint8_t seed) { fhss_seed_ = seed & 0x0FU; }
 
 private:
     uint32_t total_fhss_hops_   = 0;

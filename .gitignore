@@ -218,3 +218,34 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local documentation & competition materials
+docs/
+
+# Firmware & Android build artifacts / binaries
+.pio/
+.gradle/
+*.apk
+mobile_app/StealthMesh_Phone_App.html
+
+# Cryptographic keys, hardware eFuse keys, and secrets (NEVER commit)
+*.pem
+*.key
+*.jks
+*.keystore
+flash_encryption_key.bin
+sbv2_digest.bin
+.env
+.env.*
+
+# Local simulation outputs
+results/*.json
+results/*.csv
+
+# Virtual environments, IDEs, and OS metadata
+.venv/
+venv/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

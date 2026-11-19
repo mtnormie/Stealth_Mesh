@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="ua.stealthmesh.tactical">
+
+    <!--
+      STRICT ZERO-RADIO-EMISSION SECURITY POLICY:
+      - NO android.permission.INTERNET
+      - NO android.permission.ACCESS_WIFI_STATE
+      - NO android.permission.BLUETOOTH
+      - NO android.permission.ACCESS_FINE_LOCATION
+      Communication with the Stealth Mesh node occurs 100% over wired USB Type-C OTG.
+    -->
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="true" />
+
+    <application
+        android:allowBackup="false"
+        android:label="Stealth Mesh (USB-C)"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Auto-launch Stealth Mesh as soon as the fighter plugs in the ESP32-C3 USB-C cable -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/usb_device_filter" />
+        </activity>
+    </application>
+</manifest>

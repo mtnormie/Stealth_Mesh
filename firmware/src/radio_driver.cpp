@@ -46,10 +46,13 @@ namespace SX1276Reg {
     constexpr uint8_t IRQ_FHSS_CHANGE      = 0x02;
 }
 
-// 8 European 868 MHz ISM FHSS channels (Hz)
-static constexpr uint32_t FHSS_CHANNELS_HZ[8] = {
-    868100000UL, 868300000UL, 868500000UL, 867100000UL,
-    867300000UL, 867500000UL, 867700000UL, 867900000UL
+// 16 Wideband Anti-EW FHSS channels spanning 856.3 - 885.7 MHz (~30 MHz span)
+// Non-standard channel centers interleaved across low/mid/high sub-bands so each hop jumps 10-25 MHz
+static constexpr uint32_t FHSS_CHANNELS_HZ[16] = {
+    868100000UL, 856300000UL, 879700000UL, 862900000UL,
+    874300000UL, 858700000UL, 883900000UL, 865300000UL,
+    877100000UL, 860900000UL, 885700000UL, 870700000UL,
+    857500000UL, 881300000UL, 866900000UL, 872500000UL
 };
 
 static volatile bool g_dio2_irq_pending = false;
@@ -95,7 +98,7 @@ void RadioDriver::setFrequencyHz(uint32_t freq_hz) {
 }
 
 void RadioDriver::setChannelByIndex(uint8_t channel_index) {
-    setFrequencyHz(FHSS_CHANNELS_HZ[channel_index & 0x07]);
+    setFrequencyHz(FHSS_CHANNELS_HZ[channel_index & 0x0FU]);
 }
 
 bool RadioDriver::begin(bool enable_fhss, uint8_t hop_period_symbols) {
@@ -161,8 +164,8 @@ void RadioDriver::handleFhssInterrupt() {
         }
         g_dio2_irq_pending = false;
         uint8_t hop_ch = readReg(SX1276Reg::HOP_CHANNEL) & 0x3F;
-        // Affine bijection over Z_8 (gcd(5, 8) == 1) keyed by fhss_seed_ spreads hops across all 8 channels
-        uint8_t idx = (uint8_t)((hop_ch * 5U + fhss_seed_) & 0x07U);
+        // Affine bijection over Z_16 (gcd(7, 16) == 1) keyed by fhss_seed_ spreads hops across all 16 wideband channels
+        uint8_t idx = (uint8_t)((hop_ch * 7U + fhss_seed_) & 0x0FU);
         setChannelByIndex(idx);
         ++total_fhss_hops_;
         ++cur_packet_hops_;
@@ -179,7 +182,7 @@ void RadioDriver::handleFhssInterrupt() {
 
 void RadioDriver::startReceive() {
     standby();
-    setChannelByIndex(fhss_seed_ & 0x07U);
+    setChannelByIndex(fhss_seed_ & 0x0FU);
     writeReg(SX1276Reg::IRQ_FLAGS, 0xFF);
     writeReg(SX1276Reg::FIFO_ADDR_PTR, 0x00);
     writeReg(SX1276Reg::OP_MODE, SX1276Reg::MODE_LORA_RX_CONT);
@@ -190,7 +193,7 @@ bool RadioDriver::transmitFrame(const uint8_t* data, size_t len, bool allow_tx) 
         return false;
     }
     standby();
-    uint8_t start_idx = fhss_seed_ & 0x07U;
+    uint8_t start_idx = fhss_seed_ & 0x0FU;
     setChannelByIndex(start_idx);
     cur_packet_hops_ = 0;
     uint32_t start_mhz_x10 = FHSS_CHANNELS_HZ[start_idx] / 100000UL;

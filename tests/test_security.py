@@ -272,6 +272,139 @@ class GroupServiceTests(unittest.TestCase):
         self.assertEqual(fresh_beacon.sequence, 1)
         self.assertEqual(registry.register_beacon(fresh_beacon), (110.0, 260.0))
 
+    def test_hardware_node_bridge_ingests_lora_messages_and_neighbors(self) -> None:
+        from radio.hardware_bridge import HardwareNodeBridge
+
+        groups = GroupService()
+        groups.ensure_group("mesh-default", "Тактичний ефір Mesh (868 МГц)")
+        sandbox = NetworkSandboxService(seed=42)
+        hw = HardwareNodeBridge(groups, sandbox)
+
+        hw._handle_serial_line("[StealthMesh] Node: N-A1B2 | SX1276: OK (0x12) | Neighbors: 1")
+        hw._handle_serial_line('{"event":"beacon","src":"N-C3D4","hops":2,"rssi":-69,"snr":8.5}')
+        hw._handle_serial_line(
+            '{"event":"rx","src":"N-C3D4","dst":"BROADCAST","group":"mesh-default","sender":"Боєць-2","id":"N-C3D4-m1","hops":2,"rssi":-68,"snr":9.0,"msg":"Бачу ціль за посадкою"}'
+        )
+        # Duplicate frame ID must be ignored
+        hw._handle_serial_line(
+            '{"event":"rx","src":"N-C3D4","dst":"BROADCAST","group":"mesh-default","sender":"Боєць-2","id":"N-C3D4-m1","hops":2,"rssi":-68,"snr":9.0,"msg":"Бачу ціль за посадкою"}'
+        )
+
+        st = hw.get_status()
+        self.assertEqual(st["gateway_node_id"], "N-A1B2")
+        self.assertTrue(st["radio_ok"])
+        self.assertEqual(len(st["neighbors"]), 1)  # type: ignore[arg-type]
+        self.assertEqual(st["neighbors"][0]["node_id"], "N-C3D4")  # type: ignore[index]
+        self.assertEqual(st["neighbors"][0]["hops"], 2)  # type: ignore[index]
+
+        msgs = groups.list_messages("mesh-default")
+        self.assertEqual(len(msgs), 1)
+        self.assertEqual(msgs[0]["sender"], "Боєць-2")
+        self.assertEqual(msgs[0]["body"], "Бачу ціль за посадкою")
+        self.assertEqual(msgs[0].get("source_node"), "N-C3D4")
+        self.assertEqual(msgs[0].get("hops"), 2)
+        self.assertEqual(msgs[0].get("rssi"), -68)
+
+    def test_tactical_mobile_app_view_zero_wifi_and_usb_c_support(self) -> None:
+        from pathlib import Path
+        import zipfile
+        from app.ui.mobile_app_view import MOBILE_APP_HTML
+
+        self.assertIn("0 мВт Wi-Fi/BT", MOBILE_APP_HTML)
+        self.assertIn("ПІДКЛЮЧИТИ НОДУ ПО КАБЕЛЮ USB-C", MOBILE_APP_HTML)
+        self.assertIn("CONNECT NODE VIA USB-C CABLE", MOBILE_APP_HTML)
+        self.assertIn("AndroidUsbBridge", MOBILE_APP_HTML)
+        self.assertIn("navigator.serial", MOBILE_APP_HTML)
+        self.assertIn("SEND|mesh-default|", MOBILE_APP_HTML)
+
+        apk_path = Path(__file__).resolve().parent.parent / "mobile_app" / "StealthMesh_Tactical_UA_EN.apk"
+        self.assertTrue(apk_path.is_file())
+        raw_apk = apk_path.read_bytes()
+        self.assertIn(b"APK Sig Block 42", raw_apk)
+        with zipfile.ZipFile(apk_path, "r") as zf:
+            names = set(zf.namelist())
+            self.assertIn("AndroidManifest.xml", names)
+            self.assertIn("resources.arsc", names)
+            self.assertIn("classes.dex", names)
+            self.assertIn("assets/index.html", names)
+            self.assertIn("META-INF/CERT.RSA", names)
+
+    def test_mia_quarantine_challenge_and_dead_mans_switch(self) -> None:
+        from security.key_manager import DeadMansSwitch, KeyManager
+
+        km = KeyManager(max_retained_versions=4)
+        km.register_group("squad-1")
+        v2 = km.rotate_group_key("squad-1", purge_previous=True)
+        self.assertEqual(v2.version, 2)
+        with self.assertRaises(KeyError):
+            km.get_key("squad-1", 1)
+
+        dms = DeadMansSwitch(default_ttl_seconds=60.0)
+        dms.arm("squad-1", ttl_seconds=60.0, now=100.0)
+        self.assertFalse(dms.check_and_enforce(km, "squad-1", now=120.0))
+        dms.heartbeat("squad-1", now=120.0)
+        self.assertFalse(dms.check_and_enforce(km, "squad-1", now=150.0))
+        self.assertTrue(dms.check_and_enforce(km, "squad-1", now=180.0))
+        with self.assertRaises(KeyError):
+            km.active_key("squad-1")
+        with self.assertRaises(PermissionError):
+            dms.heartbeat("squad-1", now=185.0)
+
+        service = GroupService()
+        created = service.create_group("Alpha")
+        gid = created["group_id"]
+        service.send_message(gid, "Боєць-1", "Виходимо на точку")
+        q = service.quarantine_member(gid, "Боєць-3", reason="MIA", challenge="Каштан-42", rotate_key=True)
+        self.assertTrue(q["quarantined"])
+        self.assertEqual(q["key_version"], 2)
+
+        msg = service.send_message(gid, "Боєць-3", "Я на зв'язку, заберіть мене")
+        self.assertTrue(msg.get("quarantined"))
+        self.assertEqual(msg.get("trust_status"), "quarantined_mia")
+
+        with self.assertRaises(PermissionError):
+            service.release_quarantine(gid, "Боєць-3", challenge_response="невірний-код")
+        released = service.release_quarantine(gid, "Боєць-3", challenge_response="Каштан-42")
+        self.assertFalse(released["quarantined"])
+        self.assertTrue(released["verified"])
+
+    def test_duress_wipe_clears_keys_and_history(self) -> None:
+        service = GroupService()
+        created = service.create_group("Bravo")
+        gid = created["group_id"]
+        service.send_message(gid, "Командир", "Секретний маршрут")
+        wiped = service.trigger_duress_wipe(gid)
+        self.assertTrue(wiped["duress_wiped"])
+        self.assertTrue(wiped["sos_only_mode"])
+        self.assertEqual(service.list_messages(gid), [])
+        with self.assertRaises(PermissionError):
+            service.send_message(gid, "Ворог", "Спроба запису")
+
+    def test_ssrf_serial_validation_and_nonfinite_float_rejection(self) -> None:
+        from app.main import _require_float
+        from app.services.status_service import NetworkSandboxService
+        from radio.hardware_bridge import HardwareNodeBridge
+
+        bridge = HardwareNodeBridge(GroupService(), NetworkSandboxService())
+        for bad_url in (
+            "http://169.254.169.254/latest/meta-data",
+            "https://8.8.8.8/dns",
+            "http://user:pass@127.0.0.1:8765",
+        ):
+            with self.assertRaises(ValueError):
+                bridge.configure_connection(http_node_url=bad_url)
+
+        for bad_port in ("../../etc/passwd", "/tmp/evil;rm -rf /"):
+            with self.assertRaises(ValueError):
+                bridge.configure_connection(serial_port=bad_port)
+
+        ok = bridge.configure_connection(serial_port="/dev/ttyACM0", http_node_url="http://192.168.4.1")
+        self.assertEqual(ok["http_node_url"], "http://192.168.4.1")
+
+        for nonfinite in (float("nan"), float("inf"), float("-inf")):
+            with self.assertRaises(ValueError):
+                _require_float({"x": nonfinite}, "x", 10.0)
+
 
 if __name__ == "__main__":
     unittest.main()

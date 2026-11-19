@@ -14,6 +14,7 @@ class MeshMessageService:
         self,
         group_service: GroupService,
         sandbox_service: NetworkSandboxService,
+        hardware_bridge: object | None = None,
     ) -> None:
         if not isinstance(group_service, GroupService):
             raise TypeError("group_service must be a GroupService")
@@ -21,6 +22,7 @@ class MeshMessageService:
             raise TypeError("sandbox_service must be a NetworkSandboxService")
         self.groups = group_service
         self.sandbox = sandbox_service
+        self.hardware_bridge = hardware_bridge
 
     def dispatch_group_message(
         self,
@@ -53,6 +55,15 @@ class MeshMessageService:
         )
         wire_bytes = wire_packet.to_bytes()
 
+        hw_transmitted = False
+        if self.hardware_bridge is not None and hasattr(self.hardware_bridge, "send_over_lora"):
+            try:
+                hw_transmitted = bool(
+                    self.hardware_bridge.send_over_lora(group_id, sender, body, destination="BROADCAST")
+                )
+            except Exception:
+                hw_transmitted = False
+
         nodes = state.get("nodes", [])
         known_ids = {n["node_id"] for n in nodes} if isinstance(nodes, list) else set()
         if src in known_ids and dst in known_ids:
@@ -69,5 +80,6 @@ class MeshMessageService:
         return {
             **record,
             "wire_bytes": len(wire_bytes),
+            "hardware_lora_tx": hw_transmitted,
             "mesh_delivery": sim,
         }

@@ -8,11 +8,13 @@ from datetime import datetime, timezone
 import hmac
 import json
 import threading
+import time
 from uuid import uuid4
 
 from security.authentication import MessageAuthenticator, SignedEnvelope
+from security.diia_military_auth import AuthStatus, OperatorAuthPass
 from security.encryption import EncryptedPayload, decrypt, encrypt
-from security.key_manager import KeyManager, generate_invitation_token
+from security.key_manager import DeadMansSwitch, KeyManager, generate_invitation_token
 
 MAX_GROUPS = 256
 MAX_MESSAGES_PER_GROUP = 1000
@@ -31,6 +33,7 @@ class Group:
     next_sequence: int = 1
     member_tokens: OrderedDict[str, None] = field(default_factory=OrderedDict)
     messages: list[dict[str, object]] = field(default_factory=list)
+    quarantined_members: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 class GroupService:
@@ -43,19 +46,115 @@ class GroupService:
         max_messages_per_group: int = MAX_MESSAGES_PER_GROUP,
         max_invitations: int = MAX_INVITATIONS,
         max_retained_key_versions: int = 8,
+        require_operator_auth: bool = False,
     ) -> None:
         if min(max_groups, max_messages_per_group, max_invitations, max_retained_key_versions) < 1:
             raise ValueError("service capacity limits must be positive")
         self._max_groups = max_groups
         self._max_messages_per_group = max_messages_per_group
         self._max_invitations = max_invitations
+        self._require_operator_auth = bool(require_operator_auth)
         self._groups: dict[str, Group] = {}
         self._key_manager = KeyManager(max_retained_versions=max_retained_key_versions)
+        self._dead_mans_switch = DeadMansSwitch()
         self._authenticator = MessageAuthenticator()
         self._invitations: OrderedDict[str, str] = OrderedDict()
+        self._operator_passes: dict[str, OperatorAuthPass] = {}
+        self._seen_external_ids: OrderedDict[str, None] = OrderedDict()
         self._lock = threading.RLock()
 
-    def create_group(self, name: str) -> dict[str, str]:
+    def register_operator_pass(self, auth_pass: OperatorAuthPass) -> dict[str, object]:
+        """Register a verified Diia + Military ID onboarding pass for operator gating."""
+        if auth_pass.status != AuthStatus.VERIFIED:
+            raise PermissionError("operator pass must be verified")
+        with self._lock:
+            self._operator_passes[auth_pass.pass_id] = auth_pass
+            return {
+                "pass_id": auth_pass.pass_id,
+                "unit_code": auth_pass.unit_code,
+                "expires_at": auth_pass.expires_at,
+                "verified": True,
+            }
+
+    def verify_operator_pass(self, pass_id: str | None, *, now: float | None = None) -> bool:
+        """Return True if an operator holds a non-expired Diia + Military ID pass."""
+        if not isinstance(pass_id, str) or not pass_id.strip():
+            return False
+        ts = time.time() if now is None else float(now)
+        with self._lock:
+            entry = self._operator_passes.get(pass_id.strip())
+            if entry is None or entry.status != AuthStatus.VERIFIED:
+                return False
+            if ts > entry.expires_at:
+                self._operator_passes.pop(pass_id.strip(), None)
+                return False
+            return True
+
+    def ensure_group(self, group_id: str, name: str) -> dict[str, str]:
+        """Ensure a named group with a deterministic group_id exists (e.g. default LoRa mesh channel)."""
+        group_id = group_id.strip()
+        name = name.strip() or group_id
+        with self._lock:
+            existing = self._groups.get(group_id)
+            if existing is not None:
+                first_tok = next(iter(existing.member_tokens.keys()), "")
+                return {"group_id": existing.group_id, "name": existing.name, "member_token": first_tok}
+            versioned = self._key_manager.register_group(group_id)
+            member_token = generate_invitation_token()
+            tokens: OrderedDict[str, None] = OrderedDict()
+            tokens[member_token] = None
+            self._groups[group_id] = Group(
+                group_id=group_id,
+                name=name[:80],
+                key=versioned.key,
+                key_version=versioned.version,
+                member_tokens=tokens,
+            )
+            self._dead_mans_switch.arm(group_id)
+            return {"group_id": group_id, "name": name[:80], "member_token": member_token}
+
+    def ingest_remote_message(
+        self,
+        group_id: str,
+        sender: str,
+        body: str,
+        *,
+        external_id: str | None = None,
+        source_node: str | None = None,
+        rssi: int | None = None,
+        snr: float | None = None,
+        hops: int = 1,
+    ) -> dict[str, object] | None:
+        """Ingest a message received over physical LoRa radio from a neighboring or relay node."""
+        gid = (group_id or "mesh-default").strip() or "mesh-default"
+        snd = (sender or source_node or "Node").strip()[:80] or "Node"
+        txt = (body or "").strip()[:4000]
+        if not txt:
+            return None
+        with self._lock:
+            if external_id:
+                if external_id in self._seen_external_ids:
+                    return None
+                self._seen_external_ids[external_id] = None
+                while len(self._seen_external_ids) > 512:
+                    self._seen_external_ids.popitem(last=False)
+            self.ensure_group(gid, "Тактичний ефір Mesh (868 МГц)" if gid == "mesh-default" else f"Радіогрупа {gid}")
+            res = self.send_message(gid, snd, txt)
+            group = self._groups[gid]
+            if group.messages:
+                last = group.messages[-1]
+                if source_node:
+                    last["source_node"] = str(source_node)
+                if rssi is not None:
+                    last["rssi"] = int(rssi)
+                if snr is not None:
+                    last["snr"] = float(snr)
+                last["hops"] = max(1, int(hops))
+            return res
+
+    def create_group(self, name: str, *, operator_pass_id: str | None = None) -> dict[str, str]:
+        if self._require_operator_auth and not self.verify_operator_pass(operator_pass_id):
+            raise PermissionError("Diia + Military ID operator pass required")
         if not isinstance(name, str):
             raise TypeError("group name must be a string")
         name = name.strip()
@@ -76,10 +175,11 @@ class GroupService:
                 key_version=versioned.version,
                 member_tokens=tokens,
             )
+            self._dead_mans_switch.arm(group_id)
         return {"group_id": group_id, "name": name, "member_token": member_token}
 
-    def rotate_group_key(self, group_id: str) -> dict[str, object]:
-        """Rotate the active encryption key for a group while retaining recent versions."""
+    def rotate_group_key(self, group_id: str, *, purge_previous: bool = False) -> dict[str, object]:
+        """Rotate the active encryption key for a group while optionally purging old keys."""
         if not isinstance(group_id, str):
             raise TypeError("group_id must be a string")
         with self._lock:
@@ -91,7 +191,7 @@ class GroupService:
                 (record, self._present(group_id, record)["body"])
                 for record in group.messages
             ]
-            versioned = self._key_manager.rotate_group_key(group_id)
+            versioned = self._key_manager.rotate_group_key(group_id, purge_previous=purge_previous)
             group.key = versioned.key
             group.key_version = versioned.version
             for record, body_text in decoded:
@@ -118,7 +218,107 @@ class GroupService:
                     record["nonce"] = re_enc.to_dict()["nonce"]
                     record["ciphertext"] = re_enc.to_dict()["ciphertext"]
                     record["signed_envelope"] = re_env.to_dict()
-            return {"group_id": group_id, "key_version": versioned.version}
+            return {"group_id": group_id, "key_version": versioned.version, "purged_previous": purge_previous}
+
+    def quarantine_member(
+        self,
+        group_id: str,
+        member_id: str,
+        *,
+        reason: str = "MIA",
+        challenge: str | None = None,
+        rotate_key: bool = True,
+    ) -> dict[str, object]:
+        """Isolate a missing/captured member and optionally rotate & purge old group keys."""
+        if not isinstance(group_id, str) or not isinstance(member_id, str):
+            raise TypeError("group_id and member_id must be strings")
+        mid = member_id.strip()
+        if not mid:
+            raise ValueError("member_id must be non-empty")
+        with self._lock:
+            group = self._groups.get(group_id)
+            if group is None:
+                raise KeyError("group not found")
+            group.quarantined_members[mid] = {
+                "reason": (reason or "MIA").strip()[:64],
+                "quarantined_at": datetime.now(timezone.utc).isoformat(),
+                "challenge": (challenge or "").strip()[:128],
+            }
+            if rotate_key:
+                rot = self.rotate_group_key(group_id, purge_previous=True)
+                key_ver = rot["key_version"]
+            else:
+                key_ver = group.key_version
+            return {
+                "group_id": group_id,
+                "member_id": mid,
+                "quarantined": True,
+                "reason": group.quarantined_members[mid]["reason"],
+                "key_version": key_ver,
+            }
+
+    def release_quarantine(
+        self,
+        group_id: str,
+        member_id: str,
+        *,
+        challenge_response: str | None = None,
+    ) -> dict[str, object]:
+        """Verify challenge-response (if set) and restore a quarantined member."""
+        if not isinstance(group_id, str) or not isinstance(member_id, str):
+            raise TypeError("group_id and member_id must be strings")
+        mid = member_id.strip()
+        with self._lock:
+            group = self._groups.get(group_id)
+            if group is None:
+                raise KeyError("group not found")
+            entry = group.quarantined_members.get(mid)
+            if entry is None:
+                return {"group_id": group_id, "member_id": mid, "quarantined": False}
+            expected = entry.get("challenge", "")
+            if expected:
+                provided = (challenge_response or "").strip()
+                if not hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8")):
+                    raise PermissionError("challenge-response verification failed")
+            del group.quarantined_members[mid]
+            return {"group_id": group_id, "member_id": mid, "quarantined": False, "verified": True}
+
+    def heartbeat(
+        self,
+        group_id: str,
+        *,
+        ttl_seconds: float | None = None,
+        now: float | None = None,
+    ) -> dict[str, object]:
+        """Confirm operator liveness or arm a new Dead Man's Switch TTL."""
+        with self._lock:
+            if group_id not in self._groups:
+                raise KeyError("group not found")
+            if ttl_seconds is not None:
+                return self._dead_mans_switch.arm(group_id, ttl_seconds=ttl_seconds, now=now)
+            return self._dead_mans_switch.heartbeat(group_id, now=now)
+
+    def dead_mans_switch_status(self, group_id: str, *, now: float | None = None) -> dict[str, object]:
+        """Check Dead Man's Switch and enforce key wipe if expired."""
+        with self._lock:
+            group = self._groups.get(group_id)
+            if group is None:
+                raise KeyError("group not found")
+            if self._dead_mans_switch.check_and_enforce(self._key_manager, group_id, now=now):
+                group.key = b"\x00" * 32
+                group.messages.clear()
+            return self._dead_mans_switch.status(group_id, now=now)
+
+    def trigger_duress_wipe(self, group_id: str) -> dict[str, object]:
+        """Erase active keys, message history, and member tokens for a group from RAM."""
+        with self._lock:
+            group = self._groups.get(group_id)
+            if group is None:
+                raise KeyError("group not found")
+            group.key = b"\x00" * 32
+            group.messages.clear()
+            group.member_tokens.clear()
+            return self._dead_mans_switch.trigger_duress_wipe(self._key_manager, group_id)
 
     def create_invitation(self, group_id: str, app_url: str) -> dict[str, str]:
         if not isinstance(group_id, str) or not isinstance(app_url, str):
@@ -153,16 +353,29 @@ class GroupService:
 
     def verify_member_token(self, group_id: str, member_token: str | None) -> bool:
         """Verify that a client holds a valid membership capability token for the group."""
-        if not isinstance(group_id, str) or not isinstance(member_token, str) or not member_token.strip():
+        if not isinstance(group_id, str):
             return False
-        candidate = member_token.strip().encode("utf-8")
         with self._lock:
             group = self._groups.get(group_id)
             if group is None:
                 return False
+            if group_id == "mesh-default":
+                return True
+            if not isinstance(member_token, str) or not member_token.strip():
+                return False
+            candidate = member_token.strip().encode("utf-8")
             return any(hmac.compare_digest(candidate, tok.encode("utf-8")) for tok in group.member_tokens)
 
-    def send_message(self, group_id: str, sender: str, body: str) -> dict[str, str]:
+    def send_message(
+        self,
+        group_id: str,
+        sender: str,
+        body: str,
+        *,
+        operator_pass_id: str | None = None,
+    ) -> dict[str, str]:
+        if self._require_operator_auth and not self.verify_operator_pass(operator_pass_id):
+            raise PermissionError("Diia + Military ID operator pass required")
         if not isinstance(group_id, str) or not isinstance(sender, str) or not isinstance(body, str):
             raise TypeError("group_id, sender, and body must be strings")
         sender, body = sender.strip(), body.strip()
@@ -174,6 +387,10 @@ class GroupService:
             group = self._groups.get(group_id)
             if group is None:
                 raise KeyError("group not found")
+            if self._dead_mans_switch.check_and_enforce(self._key_manager, group_id):
+                group.key = b"\x00" * 32
+                group.messages.clear()
+                raise PermissionError("session keys wiped by Dead Man's Switch; SOS-only mode active")
             message_id = str(uuid4())
             created_at = datetime.now(timezone.utc).isoformat()
             metadata = {
@@ -198,6 +415,7 @@ class GroupService:
                 **metadata,
                 "sequence": seq,
                 "key_version": group.key_version,
+                "quarantined": sender in group.quarantined_members,
                 **encrypted.to_dict(),
                 "signed_envelope": wire_envelope.to_dict(),
             }
@@ -228,6 +446,10 @@ class GroupService:
             group = self._groups.get(group_id)
             if group is None:
                 raise KeyError("group not found")
+            if self._dead_mans_switch.check_and_enforce(self._key_manager, group_id):
+                group.key = b"\x00" * 32
+                group.messages.clear()
+                return []
             return [self._present(group_id, record) for record in group.messages]
 
     def list_groups(self) -> list[dict[str, str]]:
@@ -246,7 +468,14 @@ class GroupService:
             }
         )
         cleartext = decrypt(key, payload, _associated_data(metadata))
-        return {**metadata, "body": json.loads(cleartext)["body"]}
+        out: dict[str, object] = {**metadata, "body": json.loads(cleartext)["body"]}
+        if record.get("quarantined"):
+            out["quarantined"] = True
+            out["trust_status"] = "quarantined_mia"
+        for extra_key in ("source_node", "rssi", "snr", "hops"):
+            if extra_key in record:
+                out[extra_key] = record[extra_key]
+        return out  # type: ignore[return-value]
 
 
 def _associated_data(metadata: dict[str, str]) -> bytes:
