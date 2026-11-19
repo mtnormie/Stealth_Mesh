@@ -10,79 +10,101 @@ CHAT_VIEW_HTML: str = """<!doctype html>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="StealthMesh">
-<meta name="theme-color" content="#0f172a">
+<meta name="theme-color" content="#090b10">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon.svg">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <title>Stealth Mesh</title>
 <style>
+:root{
+  --bg-deep:#080a0f;
+  --bg-panel:#0e1118;
+  --bg-elevated:#141824;
+  --bg-hover:#1c2233;
+  --bg-active:#21283d;
+  --border:rgba(125,211,252,0.10);
+  --ice:#7dd3fc;
+  --ice-bright:#38bdf8;
+  --violet:#7c3aed;
+  --violet-soft:#8b5cf6;
+  --text:#f1f5f9;
+  --muted:#8b95a8;
+  --bubble-in:#181d2b;
+  --bubble-out:linear-gradient(135deg,#6d28d9 0%,#4f46e5 55%,#0284c7 100%);
+}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{height:100%;margin:0;background:#0b141a;color:#e9edef;font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;overflow:hidden}
-.app{display:grid;grid-template-columns:340px 1fr;height:100dvh;max-width:1440px;margin:0 auto;background:#111b21;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(125,211,252,0.16);border-radius:999px}
+::-webkit-scrollbar-thumb:hover{background:rgba(125,211,252,0.3)}
+html,body{height:100%;margin:0;background:var(--bg-deep);color:var(--text);font:15px/1.42 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;overflow:hidden}
+.app{display:grid;grid-template-columns:340px 1fr;height:100dvh;max-width:1440px;margin:0 auto;background:var(--bg-panel);padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
 @media(max-width:780px){
   .app{grid-template-columns:1fr}
   .app.chat-open .sidebar{display:none}
   .app:not(.chat-open) .chat-pane{display:none}
 }
 /* Sidebar */
-.sidebar{display:flex;flex-direction:column;border-right:1px solid #222e35;background:#111b21;height:100%;min-height:0}
-.side-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#202c33;gap:8px}
-.user-pill{display:flex;align-items:center;gap:10px;cursor:pointer;padding:4px 8px;border-radius:10px;transition:background .15s}
-.user-pill:hover{background:#2a3942}
-.avatar{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#00a884,#027eb5);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:1rem;flex-shrink:0;user-select:none}
-.avatar.sm{width:34px;height:34px;font-size:.88rem}
-.side-actions{display:flex;gap:6px;align-items:center}
-.icon-btn{background:#2a3942;border:0;color:#d1d7db;padding:8px 11px;border-radius:10px;cursor:pointer;font:600 .83rem inherit;transition:background .15s}
-.icon-btn:hover{background:#374854;color:#fff}
-.icon-btn.primary{background:#00a884;color:#fff}
-.icon-btn.primary:hover{background:#06cf9c}
-.search-box{padding:10px 14px;border-bottom:1px solid #222e35;display:flex;gap:8px}
-.search-box input{width:100%;background:#202c33;border:1px solid transparent;color:#e9edef;padding:9px 14px;border-radius:10px;font:inherit;outline:none}
-.search-box input:focus{border-color:#00a884}
-.chat-list{flex:1;overflow-y:auto;divide-y:1px solid #222e35}
-.chat-item{display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;border-bottom:1px solid #1c272e;transition:background .12s}
-.chat-item:hover{background:#202c33}
-.chat-item.active{background:#2a3942}
+.sidebar{display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--bg-panel);height:100%;min-height:0}
+.side-header{display:flex;align-items:center;justify-content:space-between;padding:0 14px;height:60px;background:var(--bg-panel);border-bottom:1px solid var(--border);gap:8px;flex-shrink:0}
+.user-pill{display:flex;align-items:center;gap:10px;cursor:pointer;padding:4px 6px;border-radius:12px;transition:background .15s;min-width:0;flex:1}
+.user-pill:hover{background:var(--bg-hover)}
+.avatar{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--violet),var(--ice-bright));display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:.98rem;flex-shrink:0;user-select:none;box-shadow:0 2px 10px rgba(124,58,237,0.28)}
+.avatar.sm{width:34px;height:34px;font-size:.86rem}
+.side-actions{display:flex;gap:4px;align-items:center;flex-shrink:0}
+.icon-btn{background:var(--bg-elevated);border:1px solid var(--border);color:var(--text);padding:6px 9px;border-radius:10px;cursor:pointer;font:600 .78rem inherit;transition:all .15s;white-space:nowrap}
+.icon-btn:hover{background:var(--bg-hover);border-color:rgba(125,211,252,0.28)}
+.icon-btn.primary{background:linear-gradient(135deg,var(--violet),#2563eb);border-color:transparent;color:#fff}
+.icon-btn.primary:hover{filter:brightness(1.12)}
+.search-box{padding:10px 14px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-shrink:0}
+.search-box input{width:100%;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text);padding:8px 14px;border-radius:20px;font:inherit;font-size:.88rem;outline:none;transition:border-color .15s}
+.search-box input:focus{border-color:var(--ice-bright)}
+.chat-list{flex:1;overflow-y:auto}
+.chat-item{display:flex;align-items:center;gap:12px;padding:11px 14px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.03);transition:background .12s}
+.chat-item:hover{background:var(--bg-hover)}
+.chat-item.active{background:var(--bg-active);box-shadow:inset 3px 0 0 var(--ice-bright)}
 .chat-item-meta{flex:1;min-width:0}
-.chat-item-title{font-weight:600;color:#e9edef;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.chat-item-sub{font-size:.82rem;color:#8696a0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.chat-item-title{font-weight:600;font-size:.94rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-item-sub{font-size:.79rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
 /* Main Chat Pane */
-.chat-pane{display:flex;flex-direction:column;height:100%;min-height:0;background:#0b141a;position:relative}
-.chat-header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:#202c33;border-bottom:1px solid #222e35;min-height:62px;gap:10px}
+.chat-pane{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--bg-deep);position:relative}
+.chat-header{display:flex;align-items:center;justify-content:space-between;padding:0 18px;height:60px;background:var(--bg-panel);border-bottom:1px solid var(--border);gap:10px;flex-shrink:0}
 .chat-header-left{display:flex;align-items:center;gap:12px;min-width:0}
-.back-btn{display:none;background:transparent;border:0;color:#e9edef;font-size:1.3rem;cursor:pointer;padding:4px 8px}
+.back-btn{display:none;background:transparent;border:0;color:var(--ice);font-size:1.3rem;cursor:pointer;padding:4px 8px}
 @media(max-width:780px){.back-btn{display:inline-block}}
-.chat-title{font-weight:600;font-size:1.02rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.chat-sub{font-size:.78rem;color:#00a884;display:flex;align-items:center;gap:4px}
-.messages-wrap{flex:1;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:8px;background:radial-gradient(circle at 20% 20%,#111f28 0%,#0b141a 100%)}
-.e2e-notice{align-self:center;background:#182229;color:#ffd279;border:1px solid #2a3942;border-radius:10px;padding:7px 14px;font-size:.8rem;text-align:center;max-width:480px;margin:4px 0 12px}
-.msg-row{display:flex;gap:8px;max-width:78%;align-items:flex-end}
+.chat-title{font-weight:600;font-size:.98rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-sub{font-size:.74rem;color:var(--ice);display:flex;align-items:center;gap:4px;opacity:.9}
+.messages-wrap{flex:1;overflow-y:auto;padding:18px 22px;display:flex;flex-direction:column;gap:8px;background:radial-gradient(circle at 18% 15%,rgba(124,58,237,0.10) 0%,transparent 48%),radial-gradient(circle at 85% 85%,rgba(56,189,248,0.08) 0%,transparent 48%),var(--bg-deep)}
+.e2e-notice{align-self:center;background:rgba(20,24,36,0.85);color:var(--ice);border:1px solid var(--border);border-radius:999px;padding:6px 14px;font-size:.75rem;text-align:center;max-width:440px;margin:2px 0 10px;backdrop-filter:blur(8px)}
+.msg-row{display:flex;gap:8px;max-width:72%;align-items:flex-end}
 .msg-row.mine{align-self:flex-end;flex-direction:row-reverse}
 .msg-row.theirs{align-self:flex-start}
-.bubble{padding:8px 12px;border-radius:14px;position:relative;word-wrap:break-word;overflow-wrap:anywhere;box-shadow:0 1px 2px rgba(0,0,0,.25)}
-.msg-row.mine .bubble{background:#005c4b;color:#e9edef;border-bottom-right-radius:4px}
-.msg-row.theirs .bubble{background:#202c33;color:#e9edef;border-bottom-left-radius:4px}
-.sender-label{font-size:.76rem;font-weight:700;color:#38bdf8;margin-bottom:2px}
-.msg-text{font-size:.95rem;line-height:1.38;white-space:pre-wrap}
-.msg-time{font-size:.7rem;color:rgba(233,237,239,.65);text-align:right;margin-top:3px;display:flex;align-items:center;justify-content:flex-end;gap:4px}
-.empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#8696a0;text-align:center;padding:24px}
-.empty-state h2{color:#e9edef;margin:12px 0 6px;font-size:1.25rem}
+.bubble{padding:9px 14px;border-radius:18px;position:relative;word-wrap:break-word;overflow-wrap:anywhere;box-shadow:0 2px 10px rgba(0,0,0,.28)}
+.msg-row.mine .bubble{background:var(--bubble-out);color:#fff;border-bottom-right-radius:4px}
+.msg-row.theirs .bubble{background:var(--bubble-in);color:var(--text);border:1px solid rgba(255,255,255,0.06);border-bottom-left-radius:4px}
+.bubble.quarantined{border:1px solid #f59e0b !important;background:rgba(245,158,11,0.12) !important}
+.sender-label{font-size:.74rem;font-weight:700;color:var(--ice);margin-bottom:2px}
+.msg-text{font-size:.94rem;line-height:1.4;white-space:pre-wrap}
+.msg-time{font-size:.67rem;color:rgba(241,245,249,.65);text-align:right;margin-top:3px;display:flex;align-items:center;justify-content:flex-end;gap:4px}
+.empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--muted);text-align:center;padding:24px}
+.empty-state h2{color:var(--text);margin:14px 0 6px;font-size:1.25rem}
 /* Composer */
-.composer{display:flex;align-items:center;gap:10px;padding:10px 16px;background:#202c33;border-top:1px solid #222e35}
-.composer input{flex:1;background:#2a3942;border:0;color:#e9edef;padding:12px 16px;border-radius:24px;font:inherit;outline:none}
-.send-btn{width:44px;height:44px;border-radius:50%;background:#00a884;border:0;color:#fff;font-size:1.1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .1s,background .15s}
-.send-btn:hover{background:#06cf9c}
+.composer{display:flex;align-items:center;gap:10px;padding:12px 18px;background:var(--bg-panel);border-top:1px solid var(--border);flex-shrink:0}
+.composer input{flex:1;height:42px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text);padding:0 16px;border-radius:21px;font:inherit;outline:none;transition:border-color .15s}
+.composer input:focus{border-color:var(--ice-bright)}
+.send-btn{width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,var(--violet),var(--ice-bright));border:0;color:#fff;font-size:1.05rem;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .1s,filter .15s;box-shadow:0 2px 12px rgba(124,58,237,0.35)}
+.send-btn:hover{filter:brightness(1.12)}
 .send-btn:active{transform:scale(.94)}
 /* Modals */
-.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;padding:16px;z-index:50}
+.modal-backdrop{position:fixed;inset:0;background:rgba(4,6,12,.76);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;padding:16px;z-index:50}
 .modal-backdrop.open{display:flex}
-.modal{background:#202c33;border:1px solid #2f3f49;border-radius:16px;padding:20px;width:100%;max-width:400px;box-shadow:0 16px 40px rgba(0,0,0,.5)}
-.modal h3{margin:0 0 12px;color:#e9edef;font-size:1.12rem}
-.modal input{width:100%;background:#111b21;border:1px solid #374854;color:#e9edef;padding:11px 13px;border-radius:10px;font:inherit;margin:8px 0 14px;outline:none}
-.modal input:focus{border-color:#00a884}
+.modal{background:var(--bg-panel);border:1px solid var(--border);border-radius:18px;padding:20px;width:100%;max-width:390px;box-shadow:0 20px 48px rgba(0,0,0,.6)}
+.modal h3{margin:0 0 12px;color:var(--text);font-size:1.1rem}
+.modal input{width:100%;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text);padding:11px 13px;border-radius:12px;font:inherit;margin:8px 0 14px;outline:none}
+.modal input:focus{border-color:var(--ice-bright)}
 .modal-actions{display:flex;justify-content:flex-end;gap:8px}
-#qr-img{width:200px;height:200px;background:#fff;padding:8px;border-radius:12px;display:block;margin:12px auto}
-.code-pill{background:#111b21;border:1px solid #2f3f49;padding:8px 10px;border-radius:8px;font-family:monospace;font-size:.82rem;word-break:break-all;color:#7de2c3;margin:8px 0}
+#qr-img{width:200px;height:200px;background:#fff;padding:8px;border-radius:14px;display:block;margin:12px auto}
+.code-pill{background:var(--bg-deep);border:1px solid var(--border);padding:8px 10px;border-radius:10px;font-family:monospace;font-size:.82rem;word-break:break-all;color:var(--ice);margin:8px 0}
 </style>
 </head>
 <body>
@@ -92,14 +114,15 @@ html,body{height:100%;margin:0;background:#0b141a;color:#e9edef;font:15px/1.4 -a
     <div class="side-header">
       <div class="user-pill" id="btn-profile" title="Profile">
         <div class="avatar sm" id="my-avatar">У</div>
-        <div>
-          <div style="font-weight:600;font-size:.92rem" id="my-name-label">Учасник</div>
-          <div style="font-size:.74rem;color:#00a884" data-i18n="online_status">В мережі</div>
+        <div style="min-width:0">
+          <div style="font-weight:600;font-size:.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" id="my-name-label">Учасник</div>
+          <div style="font-size:.72rem;color:var(--ice)" id="hw-gateway-badge" data-i18n="online_status">В мережі</div>
         </div>
       </div>
       <div class="side-actions">
         <button class="icon-btn primary" id="btn-new-group" type="button" data-i18n="new_chat">+ Чат</button>
         <button class="icon-btn" id="btn-join-group" type="button" data-i18n="join_btn">Вхід</button>
+        <button class="icon-btn" id="btn-hw-cfg" type="button" title="USB-C">USB</button>
         <button class="icon-btn" id="btn-lang" type="button">EN</button>
       </div>
     </div>
@@ -191,6 +214,19 @@ html,body{height:100%;margin:0;background:#0b141a;color:#e9edef;font:15px/1.4 -a
     <div class="modal-actions">
       <button class="icon-btn" type="button" data-close="modal-profile" data-i18n="cancel">Скасувати</button>
       <button class="icon-btn primary" type="submit" data-i18n="save">Зберегти</button>
+    </div>
+  </form>
+</div>
+
+<!-- Modal: Hardware Node Bridge (Strictly Wired USB Type-C — Zero Wi-Fi) -->
+<div class="modal-backdrop" id="modal-hw">
+  <form class="modal" id="form-hw">
+    <h3>🔌 Дротове підключення ноди (USB Type-C)</h3>
+    <p style="font-size:.82rem;color:#8696a0;margin:0 0 8px">Wi-Fi та Bluetooth на ноді повністю вимкнені на апаратному рівні (0 мВт) для захисту бійця від пеленгації РЕР. Підключення здійснюється тільки кабелем USB Type-C:</p>
+    <input id="input-hw-serial" placeholder="USB порт (авто: /dev/ttyACM0 або /dev/ttyUSB0)">
+    <div class="modal-actions">
+      <button class="icon-btn" type="button" data-close="modal-hw" data-i18n="cancel">Скасувати</button>
+      <button class="icon-btn primary" type="submit" data-i18n="save">Підключити по USB</button>
     </div>
   </form>
 </div>
@@ -463,12 +499,12 @@ async function refreshMessages() {
     }
 
     const bubble = document.createElement('div');
-    bubble.className = 'bubble';
+    bubble.className = 'bubble' + (m.quarantined ? ' quarantined' : '');
 
     if (!isMine) {
       const sLabel = document.createElement('div');
       sLabel.className = 'sender-label';
-      sLabel.textContent = m.sender;
+      sLabel.textContent = (m.quarantined ? '⚠️ ' : '') + (m.source_node ? `${m.sender} · ${m.source_node}` : m.sender);
       bubble.append(sLabel);
     }
 
@@ -479,7 +515,9 @@ async function refreshMessages() {
     const time = document.createElement('div');
     time.className = 'msg-time';
     const hhmm = (m.created_at || '').slice(11, 16) || '';
-    time.textContent = hhmm + (isMine ? ' ✓✓' : '');
+    const hopBadge = (m.hops && m.hops > 1) ? ` · Relay (${m.hops} hops)` : (m.source_node ? ' · LoRa' : '');
+    const rssiBadge = (!isMine && m.rssi) ? ` · ${m.rssi} dBm` : '';
+    time.textContent = hhmm + hopBadge + rssiBadge + (isMine ? ' ✓✓' : '');
 
     bubble.append(txt, time);
     row.append(bubble);
@@ -487,6 +525,48 @@ async function refreshMessages() {
   }
   box.scrollTop = box.scrollHeight;
 }
+
+async function refreshHardwareStatus() {
+  try {
+    const st = await api('/api/hardware/status');
+    const badge = document.getElementById('hw-gateway-badge');
+    if (badge) {
+      badge.textContent = st.connected
+        ? `● ${st.gateway_node_id} · USB-C`
+        : (lang === 'uk' ? '○ Очікування USB-C' : '○ Waiting USB-C');
+    }
+  } catch (e) {}
+}
+
+const pingBtn = document.getElementById('btn-hw-ping');
+if (pingBtn) {
+  pingBtn.onclick = async () => {
+    try {
+      await api('/api/hardware/beacon', {});
+      setTimeout(refreshHardwareStatus, 500);
+    } catch (e) {}
+  };
+}
+
+document.getElementById('btn-hw-cfg').onclick = async () => {
+  try {
+    const st = await api('/api/hardware/status');
+    document.getElementById('input-hw-serial').value = st.serial_port || '/dev/ttyACM0';
+  } catch (e) {}
+  openModal('modal-hw');
+};
+
+document.getElementById('form-hw').onsubmit = async e => {
+  e.preventDefault();
+  try {
+    const sp = document.getElementById('input-hw-serial').value.trim();
+    await api('/api/hardware/connect', { serial_port: sp });
+    closeModal('modal-hw');
+    setTimeout(refreshHardwareStatus, 500);
+  } catch (err) {
+    showError(err);
+  }
+};
 
 document.getElementById('form-create').onsubmit = async e => {
   e.preventDefault();
@@ -556,7 +636,11 @@ if (joinToken) {
   openModal('modal-join');
 }
 refreshGroups().catch(showError);
-setInterval(() => { if (activeGroupId) refreshMessages().catch(() => {}); }, 3000);
+refreshHardwareStatus();
+setInterval(() => {
+  if (activeGroupId) refreshMessages().catch(() => {});
+  refreshHardwareStatus();
+}, 2500);
 </script>
 </body>
 </html>"""

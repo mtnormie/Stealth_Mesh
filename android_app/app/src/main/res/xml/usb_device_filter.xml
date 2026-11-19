@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Espressif Systems ESP32-C3 / ESP32-S3 Native USB JTAG/Serial (VID 0x303A = 12346) -->
+    <usb-device vendor-id="12346" />
+    <!-- QinHeng CH340 / CH341 / CH9102 (VID 0x1A86 = 6790) -->
+    <usb-device vendor-id="6790" />
+    <!-- Silicon Labs CP210x (VID 0x10C4 = 4292) -->
+    <usb-device vendor-id="4292" />
+    <!-- FTDI FT232 (VID 0x0403 = 1027) -->
+    <usb-device vendor-id="1027" />
+</resources>
